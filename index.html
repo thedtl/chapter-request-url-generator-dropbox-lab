@@ -693,7 +693,7 @@
             let linksHtml = '';
             chapters.forEach((ch, i) => {
                 const url = getChapterUrl(tokens[i].token);
-                linksHtml += '      <li><a href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(ch.title) + '</a></li>\n';
+                linksHtml += '      <li><a href="' + url + '" target="_self">' + escapeHtml(ch.title) + '</a></li>\n';
             });
 
             // Generate the complete self-contained code
