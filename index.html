@@ -289,6 +289,15 @@
             background: white;
         }
 
+        .password-saved {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--success);
+            margin-left: 8px;
+        }
+
         @media (max-width: 640px) {
             .header-content { flex-direction: column; gap: 12px; }
         }
@@ -350,10 +359,27 @@
     </header>
 
     <main class="container">
-        <!-- Step 1: Book Info -->
+        <!-- Step 1: Authentication -->
         <div class="card">
             <div class="card-header">
                 <span class="step">1</span>
+                <h2>Staff Authentication</h2>
+            </div>
+            <div class="card-body">
+                <div class="form-group">
+                    <label for="staffPassword">
+                        Staff Password
+                        <span id="passwordSaved" class="password-saved" style="display: none;">✓ Saved</span>
+                    </label>
+                    <input type="password" id="staffPassword" placeholder="Enter staff password">
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Book Info -->
+        <div class="card">
+            <div class="card-header">
+                <span class="step">2</span>
                 <h2>Book Information</h2>
             </div>
             <div class="card-body">
@@ -375,7 +401,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
                     </svg>
-                    Generate Code
+                    Generate Chapter Links
                 </button>
             </div>
         </div>
@@ -427,7 +453,7 @@
         // CONFIGURATION
         // =============================================================
         const VIEWER_URL = "https://thedtl.github.io/chapter-pdf-reader/web/viewer.html";
-        const WORKER_URL = "https://dtl-secure-worker.ccrawford.workers.dev";
+        const WORKER_URL = "https://dtl-chapter-request.ccrawford.workers.dev";
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -435,6 +461,27 @@
         // STATE
         // =============================================================
         let generatedCode = '';
+
+        // =============================================================
+        // PASSWORD PERSISTENCE (Session Only)
+        // =============================================================
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedPassword = sessionStorage.getItem('dtl_staff_password');
+            if (savedPassword) {
+                document.getElementById('staffPassword').value = savedPassword;
+                document.getElementById('passwordSaved').style.display = 'inline-flex';
+            }
+        });
+
+        document.getElementById('staffPassword').addEventListener('change', function() {
+            if (this.value) {
+                sessionStorage.setItem('dtl_staff_password', this.value);
+                document.getElementById('passwordSaved').style.display = 'inline-flex';
+            } else {
+                sessionStorage.removeItem('dtl_staff_password');
+                document.getElementById('passwordSaved').style.display = 'none';
+            }
+        });
 
         // =============================================================
         // UI HELPERS
@@ -456,22 +503,35 @@
             } else if (type === 'success') {
                 bar.style.display = 'none';
             }
+            
+            // Scroll to results
+            card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
         // =============================================================
         // MAIN FUNCTION
         // =============================================================
         async function analyzePDF() {
+            const staffPassword = document.getElementById('staffPassword').value;
             const citation = document.getElementById('citation').value.trim();
             const dropboxUrl = document.getElementById('dropboxUrl').value.trim();
             
+            // Validation
+            if (!staffPassword) {
+                showStatus('Please enter the staff password', 'error');
+                document.getElementById('staffPassword').focus();
+                return;
+            }
+            
             if (!citation) {
                 showStatus('Please enter the book citation', 'error');
+                document.getElementById('citation').focus();
                 return;
             }
             
             if (!dropboxUrl) {
                 showStatus('Please enter a Dropbox URL', 'error');
+                document.getElementById('dropboxUrl').focus();
                 return;
             }
 
@@ -483,8 +543,9 @@
             showStatus('Loading PDF and extracting chapters...');
             
             try {
-                // Get temp token to load PDF
+                // Get temp token to load PDF (full access for analysis)
                 const tempResponse = await fetch(WORKER_URL + '/sign?' + new URLSearchParams({
+                    password: staffPassword,
                     dropbox: dropboxUrl,
                     start: '1',
                     end: '99999',
@@ -494,24 +555,31 @@
                 const tempData = await tempResponse.json();
                 
                 if (tempData.error) {
-                    showStatus(tempData.error, 'error');
+                    if (tempData.error.includes('Unauthorized')) {
+                        showStatus('Invalid staff password. Please check and try again.', 'error');
+                        document.getElementById('staffPassword').focus();
+                    } else {
+                        showStatus(tempData.error, 'error');
+                    }
                     return;
                 }
                 
-                // Load PDF
+                // Load PDF through the proxy
                 const proxyUrl = WORKER_URL + '?token=' + tempData.token;
                 const pdf = await pdfjsLib.getDocument({ url: proxyUrl }).promise;
                 const totalPages = pdf.numPages;
                 
-                // Get bookmarks
+                showStatus('Extracting bookmarks...');
+                
+                // Get bookmarks (outline)
                 const outline = await pdf.getOutline();
                 
                 if (!outline || outline.length === 0) {
-                    showStatus('No bookmarks found in this PDF. Add bookmarks first.', 'error');
+                    showStatus('No bookmarks found in this PDF. Please add bookmarks to the PDF first, then try again.', 'error');
                     return;
                 }
                 
-                // Extract chapters
+                // Extract chapter information
                 const chapters = await extractChapters(pdf, outline, totalPages);
                 
                 if (chapters.length === 0) {
@@ -519,13 +587,14 @@
                     return;
                 }
                 
-                // Sign all chapters
-                showStatus('Generating secure links...');
+                showStatus('Generating secure chapter links...');
                 
+                // Sign all chapters with the batch endpoint
                 const signResponse = await fetch(WORKER_URL + '/batch-sign', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        password: staffPassword,
                         dropbox: dropboxUrl,
                         chapters: chapters.map(ch => ({
                             title: ch.title,
@@ -533,7 +602,7 @@
                             end: ch.end
                         })),
                         download: false,
-                        expires: 0
+                        expires: 0  // No expiration (set to number of days if you want expiration)
                     })
                 });
                 
@@ -543,15 +612,22 @@
                     throw new Error(signData.error);
                 }
                 
-                // Generate the final code
+                // Generate the final embeddable code
                 generateOutput(citation, chapters, signData.tokens, totalPages);
                 
             } catch (error) {
                 console.error('Error:', error);
-                showStatus('Error: ' + error.message, 'error');
+                if (error.message.includes('fetch')) {
+                    showStatus('Network error. Please check your connection and try again.', 'error');
+                } else {
+                    showStatus('Error: ' + error.message, 'error');
+                }
             }
         }
 
+        // =============================================================
+        // CHAPTER EXTRACTION
+        // =============================================================
         async function extractChapters(pdf, outline, totalPages) {
             const chapters = [];
             
@@ -571,6 +647,7 @@
                         endPage = totalPages;
                     }
                     
+                    // Ensure end is not before start
                     if (endPage < startPage) endPage = startPage;
                     
                     chapters.push({
@@ -579,7 +656,7 @@
                         end: endPage
                     });
                 } catch (e) {
-                    console.warn('Could not process bookmark:', e);
+                    console.warn('Could not process bookmark:', item.title, e);
                 }
             }
             
@@ -589,20 +666,28 @@
         async function getPageNumber(pdf, item) {
             try {
                 let dest = item.dest;
-                if (typeof dest === 'string') dest = await pdf.getDestination(dest);
+                if (typeof dest === 'string') {
+                    dest = await pdf.getDestination(dest);
+                }
                 if (!dest || !Array.isArray(dest)) return null;
                 const pageIndex = await pdf.getPageIndex(dest[0]);
-                return pageIndex + 1;
+                return pageIndex + 1;  // Convert to 1-based
             } catch (e) {
                 return null;
             }
         }
 
+        // =============================================================
+        // URL GENERATION
+        // =============================================================
         function getChapterUrl(token) {
             const workerUrl = WORKER_URL + '?token=' + encodeURIComponent(token);
             return VIEWER_URL + '?file=' + encodeURIComponent(workerUrl);
         }
 
+        // =============================================================
+        // OUTPUT GENERATION
+        // =============================================================
         function generateOutput(citation, chapters, tokens, totalPages) {
             // Build chapter links HTML
             let linksHtml = '';
@@ -641,7 +726,7 @@ ${linksHtml}    </ul>
 
             // Update result info
             document.getElementById('resultInfo').innerHTML = 
-                '<strong>' + chapters.length + ' chapters</strong> from a ' + totalPages + '-page PDF';
+                '<strong>' + chapters.length + ' chapters</strong> extracted from a ' + totalPages + '-page PDF';
             
             // Show code
             document.getElementById('codeOutput').textContent = generatedCode;
@@ -655,8 +740,24 @@ ${linksHtml}    </ul>
             document.getElementById('copySuccess').classList.remove('show');
         }
 
+        // =============================================================
+        // CLIPBOARD
+        // =============================================================
         function copyCode() {
             navigator.clipboard.writeText(generatedCode).then(() => {
+                document.getElementById('copySuccess').classList.add('show');
+                setTimeout(() => {
+                    document.getElementById('copySuccess').classList.remove('show');
+                }, 3000);
+            }).catch(err => {
+                console.error('Copy failed:', err);
+                // Fallback
+                const textarea = document.createElement('textarea');
+                textarea.value = generatedCode;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
                 document.getElementById('copySuccess').classList.add('show');
                 setTimeout(() => {
                     document.getElementById('copySuccess').classList.remove('show');
@@ -664,19 +765,26 @@ ${linksHtml}    </ul>
             });
         }
 
+        // =============================================================
+        // UTILITIES
+        // =============================================================
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
         }
 
-        // Enter key handlers
-        document.getElementById('dropboxUrl').addEventListener('keypress', e => {
-            if (e.key === 'Enter') analyzePDF();
+        // Enter key handlers for form flow
+        document.getElementById('staffPassword').addEventListener('keypress', e => {
+            if (e.key === 'Enter') document.getElementById('citation').focus();
         });
         
         document.getElementById('citation').addEventListener('keypress', e => {
             if (e.key === 'Enter') document.getElementById('dropboxUrl').focus();
+        });
+        
+        document.getElementById('dropboxUrl').addEventListener('keypress', e => {
+            if (e.key === 'Enter') analyzePDF();
         });
     </script>
 </body>
