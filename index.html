@@ -339,12 +339,17 @@
             margin: 0;
         }
         .dtl-chapters-list li { padding: 8px 0; }
-        .dtl-chapters-list a {
-            color: #0061fe;
+        .dtl-chapters-list a:link,
+        .dtl-chapters-list a:visited {
+            color: #0061fe !important;
             text-decoration: none;
             font-size: 14px;
         }
-        .dtl-chapters-list a:hover { text-decoration: underline; }
+        .dtl-chapters-list a:hover,
+        .dtl-chapters-list a:active {
+            color: #004bb5 !important;
+            text-decoration: none;
+        }
     </style>
 </head>
 <body>
@@ -359,7 +364,6 @@
     </header>
 
     <main class="container">
-        <!-- Step 1: Authentication -->
         <div class="card">
             <div class="card-header">
                 <span class="step">1</span>
@@ -376,7 +380,6 @@
             </div>
         </div>
 
-        <!-- Step 2: Book Info -->
         <div class="card">
             <div class="card-header">
                 <span class="step">2</span>
@@ -394,7 +397,6 @@
             </div>
         </div>
 
-        <!-- Generate Button -->
         <div class="card">
             <div class="card-body">
                 <button class="btn btn-primary" onclick="analyzePDF()">
@@ -406,22 +408,21 @@
             </div>
         </div>
 
-        <!-- Results -->
         <div class="card" id="resultsCard" style="display: none;">
             <div class="card-header">
                 <span class="step">✓</span>
                 <h2>Ready to Copy</h2>
             </div>
-            
+
             <div class="status-bar" id="statusBar" style="display: none;"></div>
-            
+
             <div class="card-body" id="resultsBody">
                 <div class="result-info" id="resultInfo"></div>
-                
+
                 <div class="code-output">
                     <pre id="codeOutput"></pre>
                 </div>
-                
+
                 <button class="btn btn-success" onclick="copyCode()">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -429,7 +430,7 @@
                     </svg>
                     Copy Code to Clipboard
                 </button>
-                
+
                 <div class="copy-success" id="copySuccess">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
@@ -437,7 +438,7 @@
                     </svg>
                     Copied! Paste into LibGuides.
                 </div>
-                
+
                 <div class="preview-section">
                     <div class="preview-label">Preview (how it will look)</div>
                     <div class="preview-box" id="previewBox"></div>
@@ -447,24 +448,15 @@
     </main>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    
+
     <script>
-        // =============================================================
-        // CONFIGURATION
-        // =============================================================
         const VIEWER_URL = "https://thedtl.github.io/chapter-pdf-reader/web/viewer.html";
         const WORKER_URL = "https://dtl-chapter-request.ccrawford.workers.dev";
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-        // =============================================================
-        // STATE
-        // =============================================================
         let generatedCode = '';
 
-        // =============================================================
-        // PASSWORD PERSISTENCE (Session Only)
-        // =============================================================
         document.addEventListener('DOMContentLoaded', () => {
             const savedPassword = sessionStorage.getItem('dtl_staff_password');
             if (savedPassword) {
@@ -483,19 +475,16 @@
             }
         });
 
-        // =============================================================
-        // UI HELPERS
-        // =============================================================
         function showStatus(message, type = 'loading') {
             const card = document.getElementById('resultsCard');
             const bar = document.getElementById('statusBar');
             const body = document.getElementById('resultsBody');
-            
+
             card.style.display = 'block';
             bar.style.display = 'flex';
             bar.className = 'status-bar ' + type;
             body.style.display = type === 'loading' ? 'none' : 'block';
-            
+
             if (type === 'loading') {
                 bar.innerHTML = '<div class="spinner"></div><span>' + message + '</span>';
             } else if (type === 'error') {
@@ -503,32 +492,27 @@
             } else if (type === 'success') {
                 bar.style.display = 'none';
             }
-            
-            // Scroll to results
+
             card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
-        // =============================================================
-        // MAIN FUNCTION
-        // =============================================================
         async function analyzePDF() {
             const staffPassword = document.getElementById('staffPassword').value;
             const citation = document.getElementById('citation').value.trim();
             const dropboxUrl = document.getElementById('dropboxUrl').value.trim();
-            
-            // Validation
+
             if (!staffPassword) {
                 showStatus('Please enter the staff password', 'error');
                 document.getElementById('staffPassword').focus();
                 return;
             }
-            
+
             if (!citation) {
                 showStatus('Please enter the book citation', 'error');
                 document.getElementById('citation').focus();
                 return;
             }
-            
+
             if (!dropboxUrl) {
                 showStatus('Please enter a Dropbox URL', 'error');
                 document.getElementById('dropboxUrl').focus();
@@ -536,14 +520,13 @@
             }
 
             if (!dropboxUrl.includes('dropbox.com')) {
-                showStatus('This doesn\'t look like a Dropbox URL', 'error');
+                showStatus('This doesn\\'t look like a Dropbox URL', 'error');
                 return;
             }
 
             showStatus('Loading PDF and extracting chapters...');
-            
+
             try {
-                // Get temp token to load PDF (full access for analysis)
                 const tempResponse = await fetch(WORKER_URL + '/sign?' + new URLSearchParams({
                     password: staffPassword,
                     dropbox: dropboxUrl,
@@ -551,9 +534,9 @@
                     end: '99999',
                     expires: '0'
                 }));
-                
+
                 const tempData = await tempResponse.json();
-                
+
                 if (tempData.error) {
                     if (tempData.error.includes('Unauthorized')) {
                         showStatus('Invalid staff password. Please check and try again.', 'error');
@@ -563,33 +546,29 @@
                     }
                     return;
                 }
-                
-                // Load PDF through the proxy
+
                 const proxyUrl = WORKER_URL + '?token=' + tempData.token;
                 const pdf = await pdfjsLib.getDocument({ url: proxyUrl }).promise;
                 const totalPages = pdf.numPages;
-                
+
                 showStatus('Extracting bookmarks...');
-                
-                // Get bookmarks (outline)
+
                 const outline = await pdf.getOutline();
-                
+
                 if (!outline || outline.length === 0) {
                     showStatus('No bookmarks found in this PDF. Please add bookmarks to the PDF first, then try again.', 'error');
                     return;
                 }
-                
-                // Extract chapter information
+
                 const chapters = await extractChapters(pdf, outline, totalPages);
-                
+
                 if (chapters.length === 0) {
                     showStatus('Could not extract chapter information from bookmarks.', 'error');
                     return;
                 }
-                
+
                 showStatus('Generating secure chapter links...');
-                
-                // Sign all chapters with the batch endpoint
+
                 const signResponse = await fetch(WORKER_URL + '/batch-sign', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -602,19 +581,18 @@
                             end: ch.end
                         })),
                         download: false,
-                        expires: 0  // No expiration (set to number of days if you want expiration)
+                        expires: 0
                     })
                 });
-                
+
                 const signData = await signResponse.json();
-                
+
                 if (signData.error) {
                     throw new Error(signData.error);
                 }
-                
-                // Generate the final embeddable code
+
                 generateOutput(citation, chapters, signData.tokens, totalPages);
-                
+
             } catch (error) {
                 console.error('Error:', error);
                 if (error.message.includes('fetch')) {
@@ -625,20 +603,17 @@
             }
         }
 
-        // =============================================================
-        // CHAPTER EXTRACTION
-        // =============================================================
         async function extractChapters(pdf, outline, totalPages) {
             const chapters = [];
-            
+
             for (let i = 0; i < outline.length; i++) {
                 const item = outline[i];
                 const nextItem = outline[i + 1];
-                
+
                 try {
                     let startPage = await getPageNumber(pdf, item);
                     if (startPage === null) continue;
-                    
+
                     let endPage;
                     if (nextItem) {
                         const nextStart = await getPageNumber(pdf, nextItem);
@@ -646,10 +621,9 @@
                     } else {
                         endPage = totalPages;
                     }
-                    
-                    // Ensure end is not before start
+
                     if (endPage < startPage) endPage = startPage;
-                    
+
                     chapters.push({
                         title: item.title.trim(),
                         start: startPage,
@@ -659,7 +633,7 @@
                     console.warn('Could not process bookmark:', item.title, e);
                 }
             }
-            
+
             return chapters;
         }
 
@@ -671,32 +645,25 @@
                 }
                 if (!dest || !Array.isArray(dest)) return null;
                 const pageIndex = await pdf.getPageIndex(dest[0]);
-                return pageIndex + 1;  // Convert to 1-based
+                return pageIndex + 1;
             } catch (e) {
                 return null;
             }
         }
 
-        // =============================================================
-        // URL GENERATION
-        // =============================================================
         function getChapterUrl(token) {
             const workerUrl = WORKER_URL + '?token=' + encodeURIComponent(token);
             return VIEWER_URL + '?file=' + encodeURIComponent(workerUrl);
         }
 
-        // =============================================================
-        // OUTPUT GENERATION
-        // =============================================================
         function generateOutput(citation, chapters, tokens, totalPages) {
-            // Build chapter links HTML
             let linksHtml = '';
+
             chapters.forEach((ch, i) => {
                 const url = getChapterUrl(tokens[i].token);
                 linksHtml += '      <li><a href="' + url + '" onclick="event.preventDefault(); event.stopPropagation(); window.location.href=this.href;">' + escapeHtml(ch.title) + '</a></li>\n';
             });
 
-            // Generate the complete self-contained code
             generatedCode = `<!-- ${escapeHtml(citation)} - Chapter Links -->
 <style>
 .dtl-chapters { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -709,12 +676,21 @@
 .dtl-chapters.open .dtl-chapters-list { max-height: 2000px; }
 .dtl-chapters-list ul { list-style: none; padding: 12px 0 12px 28px; margin: 0; }
 .dtl-chapters-list li { padding: 8px 0; }
-.dtl-chapters-list a { color: #0061fe; text-decoration: none; font-size: 14px; }
-.dtl-chapters-list a:hover { text-decoration: underline; }
+.dtl-chapters-list a:link,
+.dtl-chapters-list a:visited {
+  color: #0061fe !important;
+  text-decoration: none;
+  font-size: 14px;
+}
+.dtl-chapters-list a:hover,
+.dtl-chapters-list a:active {
+  color: #004bb5 !important;
+  text-decoration: none;
+}
 </style>
 
-<div class="dtl-chapters">
-  <div class="dtl-chapters-header" onclick="this.parentElement.classList.toggle('open')" tabindex="0" onkeydown="if(event.key==='Enter')this.click()">
+<div class="dtl-chapters open">
+  <div class="dtl-chapters-header" onclick="this.parentElement.classList.toggle('open')" tabindex="0" onkeydown="if(event.key==='Enter' || event.key===' ') { event.preventDefault(); this.click(); }">
     <span class="dtl-chapters-arrow">▶</span>
     <span class="dtl-chapters-citation">${escapeHtml(citation)}</span>
   </div>
@@ -724,25 +700,17 @@ ${linksHtml}    </ul>
   </div>
 </div>`;
 
-            // Update result info
-            document.getElementById('resultInfo').innerHTML = 
+            document.getElementById('resultInfo').innerHTML =
                 '<strong>' + chapters.length + ' chapters</strong> extracted from a ' + totalPages + '-page PDF';
-            
-            // Show code
+
             document.getElementById('codeOutput').textContent = generatedCode;
-            
-            // Show preview
             document.getElementById('previewBox').innerHTML = generatedCode;
-            
-            // Show results
+
             showStatus('', 'success');
             document.getElementById('resultsBody').style.display = 'block';
             document.getElementById('copySuccess').classList.remove('show');
         }
 
-        // =============================================================
-        // CLIPBOARD
-        // =============================================================
         function copyCode() {
             navigator.clipboard.writeText(generatedCode).then(() => {
                 document.getElementById('copySuccess').classList.add('show');
@@ -751,7 +719,6 @@ ${linksHtml}    </ul>
                 }, 3000);
             }).catch(err => {
                 console.error('Copy failed:', err);
-                // Fallback
                 const textarea = document.createElement('textarea');
                 textarea.value = generatedCode;
                 document.body.appendChild(textarea);
@@ -765,24 +732,20 @@ ${linksHtml}    </ul>
             });
         }
 
-        // =============================================================
-        // UTILITIES
-        // =============================================================
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
         }
 
-        // Enter key handlers for form flow
         document.getElementById('staffPassword').addEventListener('keypress', e => {
             if (e.key === 'Enter') document.getElementById('citation').focus();
         });
-        
+
         document.getElementById('citation').addEventListener('keypress', e => {
             if (e.key === 'Enter') document.getElementById('dropboxUrl').focus();
         });
-        
+
         document.getElementById('dropboxUrl').addEventListener('keypress', e => {
             if (e.key === 'Enter') analyzePDF();
         });
