@@ -269,17 +269,6 @@
             color: var(--gray-700);
         }
 
-        .part-chars {
-            font-size: 12px;
-            color: var(--gray-500);
-            font-family: 'Monaco', 'Consolas', monospace;
-        }
-
-        .part-chars.over-limit {
-            color: var(--error);
-            font-weight: 600;
-        }
-
         .code-output {
             background: var(--gray-900);
             padding: 20px;
@@ -761,60 +750,38 @@
             return `      <li><a href="${url}" onclick="event.preventDefault(); event.stopPropagation(); window.location.href=this.href;">${escapeHtml(ch.title)}</a></li>\n`;
         }
 
-        /* ── Split chapters into parts that fit the char limit ── */
-        function splitIntoParts(citation, chapters, tokens, charLimit) {
-            // Pre-build every <li> string
+        /* ── Split chapters into parts of CHAPTERS_PER_PART each ── */
+        const CHAPTERS_PER_PART = 30;
+
+        function splitIntoParts(citation, chapters, tokens) {
             const liStrings = chapters.map((ch, i) => buildLiHtml(ch, tokens[i].token));
-
             const styleBlock = buildStyleBlock(citation);
+            const totalParts = Math.ceil(chapters.length / CHAPTERS_PER_PART);
 
-            // First pass: figure out how many parts we need (greedy packing)
-            const partChapterIndices = []; // array of [startIdx, endIdx)
-            let idx = 0;
+            const parts = [];
+            for (let p = 0; p < totalParts; p++) {
+                const start = p * CHAPTERS_PER_PART;
+                const end = Math.min(start + CHAPTERS_PER_PART, chapters.length);
 
-            while (idx < chapters.length) {
-                // We don't know totalParts yet, so estimate wrapper with placeholder
-                const wrapperOpen = buildWrapperOpen(citation, partChapterIndices.length + 1, 99);
-                // Every part needs its own style block (LibGuides HTML boxes are isolated)
-                const overhead = styleBlock.length + wrapperOpen.length + WRAPPER_CLOSE.length;
-                let budget = charLimit - overhead;
-                const startIdx = idx;
-
-                while (idx < chapters.length) {
-                    const liLen = liStrings[idx].length;
-                    if (liLen > budget && idx > startIdx) break; // don't fit, but we have at least one
-                    budget -= liLen;
-                    idx++;
-                    if (budget <= 0 && idx < chapters.length) break;
-                }
-
-                partChapterIndices.push([startIdx, idx]);
-            }
-
-            const totalParts = partChapterIndices.length;
-
-            // Second pass: build the actual HTML for each part (now we know totalParts)
-            const parts = partChapterIndices.map(([start, end], partIdx) => {
                 let html = styleBlock + '\n';
-                html += buildWrapperOpen(citation, partIdx + 1, totalParts);
+                html += buildWrapperOpen(citation, p + 1, totalParts);
                 for (let i = start; i < end; i++) {
                     html += liStrings[i];
                 }
                 html += WRAPPER_CLOSE;
 
-                return {
+                parts.push({
                     html,
                     chapterCount: end - start,
-                    partNumber: partIdx + 1
-                };
-            });
+                    partNumber: p + 1
+                });
+            }
 
             return parts;
         }
 
         function generateOutput(citation, chapters, tokens, totalPages) {
-            const charLimit = 3500;
-            const parts = splitIntoParts(citation, chapters, tokens, charLimit);
+            const parts = splitIntoParts(citation, chapters, tokens);
             generatedParts = parts;
 
             // Result info
@@ -826,8 +793,8 @@
             if (parts.length > 1) {
                 notice.style.display = 'flex';
                 document.getElementById('splitNoticeText').innerHTML =
-                    'Output was split into <strong>' + parts.length + ' parts</strong> to fit the ' +
-                    charLimit.toLocaleString() + '-character LibGuides limit. ' +
+                    'Output was split into <strong>' + parts.length + ' parts</strong> (' +
+                    CHAPTERS_PER_PART + ' chapters each). ' +
                     'Paste each part into a <strong>separate HTML box</strong> on the same page, in order.';
             } else {
                 notice.style.display = 'none';
@@ -838,13 +805,11 @@
             container.innerHTML = '';
 
             parts.forEach((part, i) => {
-                const charClass = part.html.length > charLimit ? ' over-limit' : '';
                 const block = document.createElement('div');
                 block.className = 'part-block';
                 block.innerHTML = `
                     <div class="part-block-header">
                         <span class="part-label">${parts.length === 1 ? 'HTML Output' : 'Part ' + part.partNumber + ' of ' + parts.length + ' — ' + part.chapterCount + ' chapters'}</span>
-                        <span class="part-chars${charClass}">${part.html.length.toLocaleString()} chars</span>
                     </div>
                     <div class="code-output">
                         <pre></pre>
