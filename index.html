@@ -232,12 +232,58 @@
             color: var(--gray-800);
         }
 
+        .split-notice {
+            background: var(--warning-bg);
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #92400e;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            line-height: 1.5;
+        }
+
+        .split-notice-icon { flex-shrink: 0; font-size: 16px; }
+
+        .part-block {
+            margin-bottom: 24px;
+            border: 2px solid var(--gray-200);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .part-block-header {
+            background: var(--gray-50);
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--gray-200);
+        }
+
+        .part-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--gray-700);
+        }
+
+        .part-chars {
+            font-size: 12px;
+            color: var(--gray-500);
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+
+        .part-chars.over-limit {
+            color: var(--error);
+            font-weight: 600;
+        }
+
         .code-output {
             background: var(--gray-900);
-            border-radius: 8px;
             padding: 20px;
-            margin-bottom: 20px;
-            max-height: 400px;
+            max-height: 300px;
             overflow-y: auto;
         }
 
@@ -250,21 +296,45 @@
             margin: 0;
         }
 
-        .copy-success {
-            display: none;
+        .part-actions {
+            padding: 12px 16px;
+            border-top: 1px solid var(--gray-200);
+            display: flex;
             align-items: center;
-            justify-content: center;
-            gap: 8px;
-            padding: 12px;
-            background: var(--success-bg);
-            color: #065f46;
-            border-radius: 8px;
-            font-weight: 600;
-            margin-top: 12px;
+            gap: 12px;
         }
 
-        .copy-success.show {
-            display: flex;
+        .btn-copy-part {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            font-family: inherit;
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-copy-part:hover { background: #059669; }
+
+        .copy-confirm {
+            font-size: 13px;
+            color: var(--success);
+            font-weight: 600;
+            display: none;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .copy-confirm.show { display: inline-flex; }
+
+        .copy-all-btn {
+            margin-bottom: 20px;
         }
 
         .preview-section {
@@ -393,6 +463,7 @@
                     <label for="dropboxUrl">Dropbox Link</label>
                     <input type="text" id="dropboxUrl" placeholder="https://www.dropbox.com/...">
                 </div>
+
             </div>
         </div>
 
@@ -417,29 +488,14 @@
 
             <div class="card-body" id="resultsBody">
                 <div class="result-info" id="resultInfo"></div>
-
-                <div class="code-output">
-                    <pre id="codeOutput"></pre>
+                <div id="splitNotice" class="split-notice" style="display: none;">
+                    <span class="split-notice-icon">⚠️</span>
+                    <span id="splitNoticeText"></span>
                 </div>
-
-                <button class="btn btn-success" onclick="copyCode()">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                    Copy Code to Clipboard
-                </button>
-
-                <div class="copy-success" id="copySuccess">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                    </svg>
-                    Copied! Paste into LibGuides.
-                </div>
+                <div id="partsContainer"></div>
 
                 <div class="preview-section">
-                    <div class="preview-label">Preview (how it will look)</div>
+                    <div class="preview-label">Preview (how it will look when all parts are pasted)</div>
                     <div class="preview-box" id="previewBox"></div>
                 </div>
             </div>
@@ -454,7 +510,7 @@
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-        let generatedCode = '';
+        let generatedParts = [];
 
         document.addEventListener('DOMContentLoaded', () => {
             const savedPassword = sessionStorage.getItem('dtl_staff_password');
@@ -655,15 +711,9 @@
             return VIEWER_URL + '?file=' + encodeURIComponent(workerUrl);
         }
 
-        function generateOutput(citation, chapters, tokens, totalPages) {
-            let linksHtml = '';
-
-            chapters.forEach((ch, i) => {
-                const url = getChapterUrl(tokens[i].token);
-                linksHtml += '      <li><a href="' + url + '" onclick="event.preventDefault(); event.stopPropagation(); window.location.href=this.href;">' + escapeHtml(ch.title) + '</a></li>\n';
-            });
-
-            generatedCode = `<!-- ${escapeHtml(citation)} - Chapter Links -->
+        /* ── Shared CSS block (only in Part 1) ── */
+        function buildStyleBlock(citation) {
+            return `<!-- ${escapeHtml(citation)} - Chapter Links -->
 <style>
 .dtl-chapters { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 .dtl-chapters-header { background: #f8f9fa; padding: 14px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px; border-radius: 6px; transition: background 0.2s; user-select: none; }
@@ -686,49 +736,163 @@
   color: #004bb5 !important;
   text-decoration: none;
 }
-</style>
+</style>`;
+        }
 
+        function buildWrapperOpen(citation, partNum, totalParts) {
+            const suffix = totalParts > 1 ? ` (Part ${partNum} of ${totalParts})` : '';
+            return `
 <div class="dtl-chapters open">
   <div class="dtl-chapters-header" onclick="this.parentElement.classList.toggle('open')" tabindex="0" onkeydown="if(event.key==='Enter' || event.key===' ') { event.preventDefault(); this.click(); }">
     <span class="dtl-chapters-arrow">▶</span>
-    <span class="dtl-chapters-citation">${escapeHtml(citation)}</span>
+    <span class="dtl-chapters-citation">${escapeHtml(citation)}${suffix}</span>
   </div>
   <div class="dtl-chapters-list">
     <ul>
-${linksHtml}    </ul>
+`;
+        }
+
+        const WRAPPER_CLOSE = `    </ul>
   </div>
 </div>`;
 
+        function buildLiHtml(ch, token) {
+            const url = getChapterUrl(token);
+            return `      <li><a href="${url}" onclick="event.preventDefault(); event.stopPropagation(); window.location.href=this.href;">${escapeHtml(ch.title)}</a></li>\n`;
+        }
+
+        /* ── Split chapters into parts that fit the char limit ── */
+        function splitIntoParts(citation, chapters, tokens, charLimit) {
+            // Pre-build every <li> string
+            const liStrings = chapters.map((ch, i) => buildLiHtml(ch, tokens[i].token));
+
+            const styleBlock = buildStyleBlock(citation);
+
+            // First pass: figure out how many parts we need (greedy packing)
+            const partChapterIndices = []; // array of [startIdx, endIdx)
+            let idx = 0;
+
+            while (idx < chapters.length) {
+                // We don't know totalParts yet, so estimate wrapper with placeholder
+                const wrapperOpen = buildWrapperOpen(citation, partChapterIndices.length + 1, 99);
+                // Every part needs its own style block (LibGuides HTML boxes are isolated)
+                const overhead = styleBlock.length + wrapperOpen.length + WRAPPER_CLOSE.length;
+                let budget = charLimit - overhead;
+                const startIdx = idx;
+
+                while (idx < chapters.length) {
+                    const liLen = liStrings[idx].length;
+                    if (liLen > budget && idx > startIdx) break; // don't fit, but we have at least one
+                    budget -= liLen;
+                    idx++;
+                    if (budget <= 0 && idx < chapters.length) break;
+                }
+
+                partChapterIndices.push([startIdx, idx]);
+            }
+
+            const totalParts = partChapterIndices.length;
+
+            // Second pass: build the actual HTML for each part (now we know totalParts)
+            const parts = partChapterIndices.map(([start, end], partIdx) => {
+                let html = styleBlock + '\n';
+                html += buildWrapperOpen(citation, partIdx + 1, totalParts);
+                for (let i = start; i < end; i++) {
+                    html += liStrings[i];
+                }
+                html += WRAPPER_CLOSE;
+
+                return {
+                    html,
+                    chapterCount: end - start,
+                    partNumber: partIdx + 1
+                };
+            });
+
+            return parts;
+        }
+
+        function generateOutput(citation, chapters, tokens, totalPages) {
+            const charLimit = 3500;
+            const parts = splitIntoParts(citation, chapters, tokens, charLimit);
+            generatedParts = parts;
+
+            // Result info
             document.getElementById('resultInfo').innerHTML =
                 '<strong>' + chapters.length + ' chapters</strong> extracted from a ' + totalPages + '-page PDF';
 
-            document.getElementById('codeOutput').textContent = generatedCode;
-            document.getElementById('previewBox').innerHTML = generatedCode;
+            // Split notice
+            const notice = document.getElementById('splitNotice');
+            if (parts.length > 1) {
+                notice.style.display = 'flex';
+                document.getElementById('splitNoticeText').innerHTML =
+                    'Output was split into <strong>' + parts.length + ' parts</strong> to fit the ' +
+                    charLimit.toLocaleString() + '-character LibGuides limit. ' +
+                    'Paste each part into a <strong>separate HTML box</strong> on the same page, in order.';
+            } else {
+                notice.style.display = 'none';
+            }
+
+            // Build part blocks
+            const container = document.getElementById('partsContainer');
+            container.innerHTML = '';
+
+            parts.forEach((part, i) => {
+                const charClass = part.html.length > charLimit ? ' over-limit' : '';
+                const block = document.createElement('div');
+                block.className = 'part-block';
+                block.innerHTML = `
+                    <div class="part-block-header">
+                        <span class="part-label">${parts.length === 1 ? 'HTML Output' : 'Part ' + part.partNumber + ' of ' + parts.length + ' — ' + part.chapterCount + ' chapters'}</span>
+                        <span class="part-chars${charClass}">${part.html.length.toLocaleString()} chars</span>
+                    </div>
+                    <div class="code-output">
+                        <pre></pre>
+                    </div>
+                    <div class="part-actions">
+                        <button class="btn-copy-part" onclick="copyPart(${i})">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            Copy${parts.length > 1 ? ' Part ' + part.partNumber : ''}
+                        </button>
+                        <span class="copy-confirm" id="copyConfirm${i}">✓ Copied!</span>
+                    </div>
+                `;
+                // Set code text safely (textContent, not innerHTML)
+                block.querySelector('pre').textContent = part.html;
+                container.appendChild(block);
+            });
+
+            // Preview: combine all parts
+            const fullHtml = parts.map(p => p.html).join('\n');
+            document.getElementById('previewBox').innerHTML = fullHtml;
 
             showStatus('', 'success');
             document.getElementById('resultsBody').style.display = 'block';
-            document.getElementById('copySuccess').classList.remove('show');
         }
 
-        function copyCode() {
-            navigator.clipboard.writeText(generatedCode).then(() => {
-                document.getElementById('copySuccess').classList.add('show');
-                setTimeout(() => {
-                    document.getElementById('copySuccess').classList.remove('show');
-                }, 3000);
-            }).catch(err => {
-                console.error('Copy failed:', err);
+        function copyPart(index) {
+            const code = generatedParts[index].html;
+            navigator.clipboard.writeText(code).then(() => {
+                showCopyConfirm(index);
+            }).catch(() => {
+                // Fallback
                 const textarea = document.createElement('textarea');
-                textarea.value = generatedCode;
+                textarea.value = code;
                 document.body.appendChild(textarea);
                 textarea.select();
                 document.execCommand('copy');
                 document.body.removeChild(textarea);
-                document.getElementById('copySuccess').classList.add('show');
-                setTimeout(() => {
-                    document.getElementById('copySuccess').classList.remove('show');
-                }, 3000);
+                showCopyConfirm(index);
             });
+        }
+
+        function showCopyConfirm(index) {
+            const el = document.getElementById('copyConfirm' + index);
+            el.classList.add('show');
+            setTimeout(() => el.classList.remove('show'), 2500);
         }
 
         function escapeHtml(text) {
