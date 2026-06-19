@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chapter Link Generator | DTL</title>
+    <title>Dropbox Chapter Link Generator | DTL</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -415,7 +415,7 @@
         <div class="header-content">
             <div class="logo">
                 <div class="logo-icon">📚</div>
-                <span>Chapter Link Generator</span>
+                <span>Dropbox Chapter Link Generator</span>
             </div>
             <div class="staff-badge">🔒 Staff Tool</div>
         </div>
@@ -494,8 +494,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
     <script>
-        const VIEWER_URL = "https://thedtl.github.io/chapter-pdf-reader/web/viewer.html";
-        const WORKER_URL = "https://dtl-chapter-request.ccrawford.workers.dev";
+        const VIEWER_URL = "https://thedtl.github.io/chapter-pdf-reader-dropbox-lab/web/viewer.html";
+        const WORKER_URL = "https://dtl-chapter-reader-dropbox-lab.ccrawford.workers.dev";
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -714,17 +714,29 @@
 .dtl-chapters.open .dtl-chapters-list { max-height: 2000px; }
 .dtl-chapters-list ul { list-style: none; padding: 12px 0 12px 28px; margin: 0; }
 .dtl-chapters-list li { padding: 8px 0; }
-.dtl-chapters-list a:link,
-.dtl-chapters-list a:visited {
+.dtl-chapter-button {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
   color: #0061fe !important;
-  text-decoration: none;
+  cursor: pointer;
+  display: inline;
+  font: inherit;
   font-size: 14px;
+  padding: 0;
+  text-align: left;
 }
-.dtl-chapters-list a:hover,
-.dtl-chapters-list a:active {
+.dtl-chapter-button:visited {
+  color: #0061fe !important;
+}
+.dtl-chapter-button:hover,
+.dtl-chapter-button:active,
+.dtl-chapter-button:focus {
   color: #004bb5 !important;
   text-decoration: none;
 }
+.dtl-chapter-button:focus { outline: 2px solid #99c2ff; outline-offset: 2px; }
 </style>`;
         }
 
@@ -743,11 +755,18 @@
 
         const WRAPPER_CLOSE = `    </ul>
   </div>
-</div>`;
+</div>
+<script>
+function dtlOpenChapter(button) {
+  var url = button && button.getAttribute("data-dtl-url");
+  if (!url) return;
+  window.location.replace(url);
+}
+<\/script>`;
 
         function buildLiHtml(ch, token) {
             const url = getChapterUrl(token);
-            return `      <li><a href="${url}" onclick="event.preventDefault(); event.stopPropagation(); window.location.href=this.href;">${escapeHtml(ch.title)}</a></li>\n`;
+            return `      <li><button type="button" class="dtl-chapter-button" data-dtl-url="${escapeAttribute(url)}" onclick="dtlOpenChapter(this)" oncontextmenu="return false;">${escapeHtml(ch.title)}</button></li>\n`;
         }
 
         /* ── Split chapters into parts of CHAPTERS_PER_PART each ── */
@@ -864,6 +883,14 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function escapeAttribute(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
         }
 
         document.getElementById('staffPassword').addEventListener('keypress', e => {
