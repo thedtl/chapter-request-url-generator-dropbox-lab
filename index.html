@@ -494,7 +494,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
     <script>
-        const VIEWER_URL = "https://thedtl.github.io/chapter-pdf-reader-dropbox-lab/web/image-reader.html";
+        const VIEWER_URL = "https://thedtl.github.io/chapter-pdf-reader-dropbox-lab/web/viewer.html";
         const WORKER_URL = "https://dtl-chapter-reader-dropbox-lab.reference-dfe.workers.dev";
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -608,9 +608,7 @@
                             start: ch.start,
                             end: ch.end
                         })),
-                        mode: 'image',
-                        download: false,
-                        expires: 0
+                        download: false
                     })
                 });
 
@@ -681,7 +679,8 @@
         }
 
         function getChapterUrl(token) {
-            return VIEWER_URL + '?worker=' + encodeURIComponent(WORKER_URL) + '&token=' + encodeURIComponent(token);
+            const workerUrl = WORKER_URL + '?token=' + encodeURIComponent(token);
+            return VIEWER_URL + '?file=' + encodeURIComponent(workerUrl);
         }
 
         /* ── Shared CSS block (only in Part 1) ── */
