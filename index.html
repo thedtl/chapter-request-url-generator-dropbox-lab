@@ -628,8 +628,8 @@
                     dropbox: dropboxUrl
                 });
                 const pdf = await pdfjsLib.getDocument({ url: analyzeUrl }).promise;
-                const lines = await extractFrontMatterLines(pdf, 6);
-                const images = await renderFrontMatterImages(pdf, 6);
+                const lines = await extractFrontMatterLines(pdf, 8);
+                const images = await renderFrontMatterImages(pdf, 8);
                 const workerSuggestion = await requestHeadingSuggestion(staffPassword, lines, images);
                 const suggestion = workerSuggestion.heading || buildCitationSuggestion(lines);
 
@@ -820,7 +820,7 @@
 
             for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber++) {
                 const page = await pdf.getPage(pageNumber);
-                const viewport = page.getViewport({ scale: 1 });
+                const viewport = page.getViewport({ scale: 1.35 });
                 const canvas = document.createElement('canvas');
                 const context = canvas.getContext('2d', { alpha: false });
                 canvas.width = Math.floor(viewport.width);
@@ -828,7 +828,7 @@
 
                 await page.render({ canvasContext: context, viewport }).promise;
 
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.68);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.74);
                 images.push({
                     pageNumber,
                     mimeType: 'image/jpeg',
