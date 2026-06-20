@@ -8,7 +8,7 @@ https://github.com/thedtl/Chapter-Request-URL-Generator
 
 This lab version points at:
 
-- Reader: `https://thedtl.github.io/chapter-pdf-reader-dropbox-lab/web/viewer.html`
+- Reader: `https://thedtl.github.io/reader/web/viewer.html`
 - Worker: `https://dtl-chapter-reader-dropbox-lab.reference-dfe.workers.dev`
 
 It reads Dropbox-backed PDFs through the lab Worker, extracts PDF bookmarks with
