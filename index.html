@@ -629,11 +629,12 @@
                 });
                 const pdf = await pdfjsLib.getDocument({ url: analyzeUrl }).promise;
                 const lines = await extractFrontMatterLines(pdf, 6);
-                const workerSuggestion = await requestHeadingSuggestion(staffPassword, lines);
+                const images = await renderFrontMatterImages(pdf, 3);
+                const workerSuggestion = await requestHeadingSuggestion(staffPassword, lines, images);
                 const suggestion = workerSuggestion.heading || buildCitationSuggestion(lines);
 
                 if (!suggestion) {
-                    showCitationNote('No clear title was found. You can still type the heading manually.', 'error');
+                    showCitationNote(workerSuggestion.note || 'No clear title was found. You can still type the heading manually.', 'error');
                     return;
                 }
 
@@ -648,14 +649,15 @@
             }
         }
 
-        async function requestHeadingSuggestion(staffPassword, lines) {
+        async function requestHeadingSuggestion(staffPassword, lines, images) {
             try {
                 const response = await fetch(WORKER_URL + '/suggest-heading', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         password: staffPassword,
-                        lines
+                        lines,
+                        images
                     })
                 });
 
@@ -666,11 +668,12 @@
 
                 return {
                     heading: String(data.heading || '').trim(),
-                    source: data.source || 'worker'
+                    source: data.source || 'worker',
+                    note: data.note || ''
                 };
             } catch (error) {
                 console.warn('Worker heading suggestion unavailable; using browser fallback.', error);
-                return { heading: '', source: 'fallback' };
+                return { heading: '', source: 'fallback', note: '' };
             }
         }
 
@@ -809,6 +812,31 @@
             }
 
             return lines;
+        }
+
+        async function renderFrontMatterImages(pdf, maxPages) {
+            const pageLimit = Math.min(pdf.numPages, maxPages);
+            const images = [];
+
+            for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber++) {
+                const page = await pdf.getPage(pageNumber);
+                const viewport = page.getViewport({ scale: 1.15 });
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d', { alpha: false });
+                canvas.width = Math.floor(viewport.width);
+                canvas.height = Math.floor(viewport.height);
+
+                await page.render({ canvasContext: context, viewport }).promise;
+
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+                images.push({
+                    pageNumber,
+                    mimeType: 'image/jpeg',
+                    data: dataUrl.replace(/^data:image\/jpeg;base64,/, '')
+                });
+            }
+
+            return images;
         }
 
         function groupTextItemsIntoLines(items, pageNumber) {
