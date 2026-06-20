@@ -165,17 +165,6 @@
             color: var(--gray-400);
         }
 
-        .field-row {
-            display: flex;
-            gap: 10px;
-            align-items: stretch;
-        }
-
-        .field-row input {
-            flex: 1;
-            min-width: 0;
-        }
-
         .btn {
             display: inline-flex;
             align-items: center;
@@ -206,21 +195,6 @@
         }
 
         .btn-success:hover { background: #059669; }
-
-        .btn-secondary {
-            background: var(--gray-100);
-            color: var(--gray-700);
-            border: 1px solid var(--gray-300);
-            padding: 0 16px;
-            width: auto;
-            white-space: nowrap;
-        }
-
-        .btn-secondary:hover { background: var(--gray-200); }
-        .btn-secondary:disabled {
-            color: var(--gray-400);
-            cursor: not-allowed;
-        }
 
         .field-note {
             display: none;
@@ -395,11 +369,6 @@
 
         @media (max-width: 640px) {
             .header-content { flex-direction: column; gap: 12px; }
-            .field-row { flex-direction: column; }
-            .btn-secondary {
-                min-height: 44px;
-                width: 100%;
-            }
         }
 
         .dtl-chapters { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -487,12 +456,7 @@
             <div class="card-body">
                 <div class="form-group">
                     <label for="citation">Citation <span class="label-hint">(Chicago-style bibliography entry)</span></label>
-                    <div class="field-row">
-                        <input type="text" id="citation" placeholder="Smith, John. A History of Ancient Rome. New York: Example Press, 2020.">
-                        <button type="button" class="btn btn-secondary" id="suggestCitationBtn" onclick="suggestCitation()">
-                            Suggest from PDF
-                        </button>
-                    </div>
+                    <input type="text" id="citation" placeholder="Leave blank to fill from the PDF, or type your own citation">
                     <div id="citationSuggestionNote" class="field-note"></div>
                 </div>
                 <div class="form-group">
@@ -594,61 +558,6 @@
             card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
-        async function suggestCitation() {
-            const staffPassword = document.getElementById('staffPassword').value;
-            const dropboxUrl = document.getElementById('dropboxUrl').value.trim();
-            const citationInput = document.getElementById('citation');
-            const button = document.getElementById('suggestCitationBtn');
-
-            if (!staffPassword) {
-                showCitationNote('Enter the staff password first.', 'error');
-                document.getElementById('staffPassword').focus();
-                return;
-            }
-
-            if (!dropboxUrl) {
-                showCitationNote('Paste the Dropbox link first.', 'error');
-                document.getElementById('dropboxUrl').focus();
-                return;
-            }
-
-            if (!dropboxUrl.includes('dropbox.com')) {
-                showCitationNote("This doesn't look like a Dropbox URL.", 'error');
-                return;
-            }
-
-            button.disabled = true;
-            const originalLabel = button.textContent;
-            button.textContent = 'Reading...';
-            showCitationNote('Reading the first pages through the protected Worker...');
-
-            try {
-                const analyzeUrl = WORKER_URL + '/analyze?' + new URLSearchParams({
-                    password: staffPassword,
-                    dropbox: dropboxUrl
-                });
-                const pdf = await pdfjsLib.getDocument({ url: analyzeUrl }).promise;
-                const lines = await extractFrontMatterLines(pdf, 8);
-                const images = await renderFrontMatterImages(pdf, 8);
-                const workerSuggestion = await requestHeadingSuggestion(staffPassword, lines, images);
-                const suggestion = workerSuggestion.heading || buildCitationSuggestion(lines);
-
-                if (!suggestion) {
-                    showCitationNote(workerSuggestion.note || 'No clear title was found. You can still type the heading manually.', 'error');
-                    return;
-                }
-
-                citationInput.value = suggestion;
-                showCitationNote('Suggested heading added. Please review before generating links.', 'success');
-            } catch (error) {
-                console.error('Citation suggestion error:', error);
-                showCitationNote('Could not suggest a heading: ' + error.message, 'error');
-            } finally {
-                button.disabled = false;
-                button.textContent = originalLabel;
-            }
-        }
-
         async function requestHeadingSuggestion(staffPassword, lines, images) {
             try {
                 const response = await fetch(WORKER_URL + '/suggest-heading', {
@@ -677,20 +586,38 @@
             }
         }
 
+        async function fillCitationFromPdfIfNeeded(pdf, staffPassword) {
+            const citationInput = document.getElementById('citation');
+            if (citationInput.value.trim()) {
+                showCitationNote('');
+                return citationInput.value.trim();
+            }
+
+            showStatus('Reading PDF front matter for citation...');
+            showCitationNote('Reading the first pages and filling the citation...');
+
+            const lines = await extractFrontMatterLines(pdf, 8);
+            const images = await renderFrontMatterImages(pdf, 8);
+            const workerSuggestion = await requestHeadingSuggestion(staffPassword, lines, images);
+            const suggestion = workerSuggestion.heading || buildCitationSuggestion(lines);
+
+            if (!suggestion) {
+                throw new Error(workerSuggestion.note || 'No clear citation was found. Please type the citation manually, then generate again.');
+            }
+
+            citationInput.value = suggestion;
+            showCitationNote('Citation filled from PDF. Please review it in the generated preview.', 'success');
+            return suggestion;
+        }
+
         async function analyzePDF() {
             const staffPassword = document.getElementById('staffPassword').value;
-            const citation = document.getElementById('citation').value.trim();
+            let citation = document.getElementById('citation').value.trim();
             const dropboxUrl = document.getElementById('dropboxUrl').value.trim();
 
             if (!staffPassword) {
                 showStatus('Please enter the staff password', 'error');
                 document.getElementById('staffPassword').focus();
-                return;
-            }
-
-            if (!citation) {
-                showStatus('Please enter the book citation', 'error');
-                document.getElementById('citation').focus();
                 return;
             }
 
@@ -715,6 +642,7 @@
 
                 const pdf = await pdfjsLib.getDocument({ url: analyzeUrl }).promise;
                 const totalPages = pdf.numPages;
+                citation = await fillCitationFromPdfIfNeeded(pdf, staffPassword);
 
                 showStatus('Extracting bookmarks...');
 
