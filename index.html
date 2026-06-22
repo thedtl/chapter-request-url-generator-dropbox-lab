@@ -727,7 +727,7 @@
                 const citationPages = getCitationPageNumbers(pdf, FRONT_MATTER_PAGE_LIMIT, BACK_MATTER_PAGE_LIMIT);
                 const lines = await extractFrontMatterLines(pdf, citationPages);
                 const images = await renderFrontMatterImages(pdf, citationPages);
-                const workerSuggestion = await requestHeadingSuggestion(staffPassword, lines, images, getCitationHintsFromSource(sourceKey));
+                const workerSuggestion = await requestHeadingSuggestion(staffPassword, lines, images);
                 const suggestion = workerSuggestion.heading || buildCitationSuggestion(lines);
 
                 if (suggestion) {
@@ -756,60 +756,6 @@
 
         function clearCitationAutoFillState() {
             autoFilledCitation = { value: '', sourceKey: '' };
-        }
-
-        function getCitationHintsFromSource(sourceKey) {
-            const filename = getDropboxFilename(sourceKey);
-            if (!filename) return { author: '', title: '' };
-
-            const base = filename
-                .replace(/\.[a-z0-9]+$/i, '')
-                .replace(/\bBookmarked\b.*$/i, '')
-                .trim();
-            const chunks = base.split(/-\.-/g)
-                .map(chunk => chunk.replace(/\bMMS-ID\b.*$/i, '').trim())
-                .filter(Boolean);
-
-            return {
-                author: normalizeFilenameAuthorHint(chunks[0] || ''),
-                title: normalizeFilenameTitleHint(chunks[1] || chunks[0] || '')
-            };
-        }
-
-        function getDropboxFilename(sourceKey) {
-            try {
-                const url = new URL(sourceKey);
-                const filename = decodeURIComponent(url.pathname.split('/').pop() || '');
-                return filename || '';
-            } catch (_error) {
-                return '';
-            }
-        }
-
-        function normalizeFilenameAuthorHint(text) {
-            const words = String(text || '')
-                .replace(/[_]+/g, '-')
-                .split(/-+/)
-                .map(word => word.trim())
-                .filter(Boolean);
-            if (words.length >= 3) {
-                return `${words[0]} ${words.slice(1).join('-')}`;
-            }
-            return words.join(' ');
-        }
-
-        function normalizeFilenameTitleHint(text) {
-            let cleaned = String(text || '')
-                .replace(/-/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-            if (!cleaned.includes(':')) {
-                const forMatch = cleaned.match(/^(.+?)\s+(For\s+.+)$/i);
-                if (forMatch && forMatch[1].split(/\s+/).length <= 5) {
-                    cleaned = `${forMatch[1]}: ${forMatch[2]}`;
-                }
-            }
-            return cleaned;
         }
 
         async function analyzePDF() {
