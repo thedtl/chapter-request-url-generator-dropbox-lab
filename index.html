@@ -562,6 +562,7 @@
         let generatedParts = [];
         let autoFilledCitation = { value: '', sourceKey: '' };
         const FALLBACK_CITATION = 'Citation needed';
+        const FRONT_MATTER_PAGE_LIMIT = 12;
 
         document.addEventListener('DOMContentLoaded', () => {
             const savedPassword = sessionStorage.getItem('dtl_staff_password');
@@ -656,8 +657,8 @@
             showCitationNote('Reading the first pages and filling the citation...');
 
             try {
-                const lines = await extractFrontMatterLines(pdf, 8);
-                const images = await renderFrontMatterImages(pdf, 8);
+                const lines = await extractFrontMatterLines(pdf, FRONT_MATTER_PAGE_LIMIT);
+                const images = await renderFrontMatterImages(pdf, FRONT_MATTER_PAGE_LIMIT);
                 const workerSuggestion = await requestHeadingSuggestion(staffPassword, lines, images);
                 const suggestion = workerSuggestion.heading || buildCitationSuggestion(lines);
 
