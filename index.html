@@ -560,6 +560,7 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
         let generatedParts = [];
+        let autoFilledCitation = { value: '', sourceKey: '' };
         const FALLBACK_CITATION = 'Citation needed';
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -636,10 +637,15 @@
             }
         }
 
-        async function fillCitationFromPdfIfNeeded(pdf, staffPassword) {
+        async function fillCitationFromPdfIfNeeded(pdf, staffPassword, sourceKey = '') {
             const citationInput = document.getElementById('citation');
-            if (citationInput.value.trim()) {
-                const citation = normalizeBibliographyCitation(citationInput.value.trim());
+            const existingCitation = citationInput.value.trim();
+            const isExistingAutoFill = existingCitation &&
+                autoFilledCitation.value === existingCitation &&
+                autoFilledCitation.sourceKey === sourceKey;
+
+            if (existingCitation && !isExistingAutoFill) {
+                const citation = normalizeBibliographyCitation(existingCitation);
                 citationInput.value = citation;
                 fillDerivedCitationFields(citation);
                 showCitationNote('');
@@ -658,6 +664,7 @@
                 if (suggestion) {
                     const citation = normalizeBibliographyCitation(suggestion);
                     citationInput.value = citation;
+                    markCitationAutoFilled(citation, sourceKey);
                     fillDerivedCitationFields(citation);
                     showCitationNote('Citation filled from PDF. Please review it in the generated preview.', 'success');
                     return citation;
@@ -672,6 +679,14 @@
             const fallbackCitation = normalizeBibliographyCitation(citationInput.value.trim()) || FALLBACK_CITATION;
             citationInput.value = fallbackCitation;
             return fallbackCitation;
+        }
+
+        function markCitationAutoFilled(citation, sourceKey) {
+            autoFilledCitation = { value: citation, sourceKey };
+        }
+
+        function clearCitationAutoFillState() {
+            autoFilledCitation = { value: '', sourceKey: '' };
         }
 
         async function analyzePDF() {
@@ -706,7 +721,7 @@
 
                 const pdf = await pdfjsLib.getDocument({ url: analyzeUrl }).promise;
                 const totalPages = pdf.numPages;
-                citation = await fillCitationFromPdfIfNeeded(pdf, staffPassword);
+                citation = await fillCitationFromPdfIfNeeded(pdf, staffPassword, dropboxUrl);
 
                 showStatus('Extracting bookmarks...');
 
@@ -2092,6 +2107,7 @@ function dtlOpenChapter(button) {
 
         document.getElementById('citation').addEventListener('change', function() {
             if (this.value.trim()) {
+                clearCitationAutoFillState();
                 const citation = normalizeBibliographyCitation(this.value.trim());
                 this.value = citation;
                 fillDerivedCitationFields(citation);
