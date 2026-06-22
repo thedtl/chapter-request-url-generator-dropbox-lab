@@ -1593,7 +1593,7 @@
             }
 
             const rest = cleanCitationText(match[4]);
-            if (!/^[`'‘’"“”]?\p{Lu}/u.test(rest)) {
+            if (!/^[`'‘’"“”]?\p{Lu}/u.test(rest) && !startsWithNonLatinScript(rest)) {
                 return null;
             }
 
@@ -1601,6 +1601,11 @@
                 author: cleanCitationText(`${match[1]}, ${match[2]}`),
                 rest
             };
+        }
+
+        function startsWithNonLatinScript(text) {
+            const cleaned = cleanFrontMatterLine(text).replace(/^[`'‘’"“”\s]+/u, '');
+            return /^[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u.test(cleaned);
         }
 
         function stripNameCredentials(text) {
@@ -1815,6 +1820,9 @@
             const plainCitation = plainCitationText(citation);
             const parts = parseBibliographyCitation(plainCitation);
             if (!parts.authorText || !parts.titleText) {
+                return escapeHtml(plainCitation);
+            }
+            if (containsNonLatinScript(parts.titleText)) {
                 return escapeHtml(plainCitation);
             }
 
