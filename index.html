@@ -2406,6 +2406,9 @@ function dtlOpenChapter(button) {
 
         function showInlineCopyConfirm(btnElement) {
             const originalText = btnElement.textContent;
+            const originalBackground = btnElement.style.background;
+            const originalBorderColor = btnElement.style.borderColor;
+            const originalColor = btnElement.style.color;
             btnElement.textContent = 'Copied!';
             btnElement.style.background = '#d1fae5';
             btnElement.style.borderColor = '#10b981';
@@ -2413,9 +2416,9 @@ function dtlOpenChapter(button) {
 
             setTimeout(() => {
                 btnElement.textContent = originalText;
-                btnElement.style.background = 'white';
-                btnElement.style.borderColor = '';
-                btnElement.style.color = '';
+                btnElement.style.background = originalBackground;
+                btnElement.style.borderColor = originalBorderColor;
+                btnElement.style.color = originalColor;
             }, 2000);
         }
 
