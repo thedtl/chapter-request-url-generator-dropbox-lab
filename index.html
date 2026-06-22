@@ -1942,6 +1942,7 @@
         function invertPersonalName(name) {
             const cleaned = cleanFrontMatterLine(name);
             if (!cleaned || cleaned.includes(',')) return cleaned;
+            if (containsNonLatinScript(cleaned)) return cleaned;
 
             const parts = cleaned.split(/\s+/);
             if (parts.length < 2) return cleaned;
@@ -1955,6 +1956,12 @@
             const last = parts.pop();
             const given = parts.join(' ');
             return last + ', ' + given + (suffix ? ', ' + suffix : '');
+        }
+
+        function containsNonLatinScript(text) {
+            const cleaned = cleanFrontMatterLine(text);
+            return /[\p{L}]/u.test(cleaned) &&
+                /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u.test(cleaned);
         }
 
         function trimTerminalPunctuation(text) {
