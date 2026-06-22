@@ -560,6 +560,7 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
         let generatedParts = [];
+        const FALLBACK_CITATION = 'Citation needed';
 
         document.addEventListener('DOMContentLoaded', () => {
             const savedPassword = sessionStorage.getItem('dtl_staff_password');
@@ -646,19 +647,26 @@
             showStatus('Reading PDF front matter for citation...');
             showCitationNote('Reading the first pages and filling the citation...');
 
-            const lines = await extractFrontMatterLines(pdf, 8);
-            const images = await renderFrontMatterImages(pdf, 8);
-            const workerSuggestion = await requestHeadingSuggestion(staffPassword, lines, images);
-            const suggestion = workerSuggestion.heading || buildCitationSuggestion(lines);
+            try {
+                const lines = await extractFrontMatterLines(pdf, 8);
+                const images = await renderFrontMatterImages(pdf, 8);
+                const workerSuggestion = await requestHeadingSuggestion(staffPassword, lines, images);
+                const suggestion = workerSuggestion.heading || buildCitationSuggestion(lines);
 
-            if (!suggestion) {
-                throw new Error(workerSuggestion.note || 'No clear citation was found. Please type the citation manually, then generate again.');
+                if (suggestion) {
+                    citationInput.value = suggestion;
+                    fillDerivedCitationFields(suggestion);
+                    showCitationNote('Citation filled from PDF. Please review it in the generated preview.', 'success');
+                    return suggestion;
+                }
+
+                console.warn('No clear citation found:', workerSuggestion.note || 'No suggestion returned');
+            } catch (error) {
+                console.warn('Citation extraction error:', error);
             }
 
-            citationInput.value = suggestion;
-            fillDerivedCitationFields(suggestion);
-            showCitationNote('Citation filled from PDF. Please review it in the generated preview.', 'success');
-            return suggestion;
+            showCitationNote('Could not auto-fill a clear citation. Code generated anyway; edit the metadata lines and generate again if needed.', 'error');
+            return citationInput.value.trim() || FALLBACK_CITATION;
         }
 
         async function analyzePDF() {
@@ -985,6 +993,10 @@
         }
 
         function buildCitationVariantsFromBibliography(bibliography) {
+            if (bibliography === FALLBACK_CITATION) {
+                return { footnote: FALLBACK_CITATION, short: FALLBACK_CITATION };
+            }
+
             const parts = parseBibliographyCitation(bibliography);
             if (!parts.titleHtml && !parts.authorText) {
                 return { footnote: bibliography, short: bibliography };
