@@ -486,6 +486,10 @@
             </div>
             <div class="card-body">
                 <div class="form-group">
+                    <label for="dropboxUrl">Dropbox Link</label>
+                    <input type="text" id="dropboxUrl" placeholder="https://www.dropbox.com/...">
+                </div>
+                <div class="form-group">
                     <div class="metadata-label-row">
                         <label for="citation">Citation <span class="label-hint">(Chicago-style bibliography entry)</span></label>
                         <button type="button" class="btn-copy-field" onclick="copyMetadataField('citation', this)">Copy</button>
@@ -507,10 +511,6 @@
                     </div>
                     <input type="text" id="shortCitation" placeholder="Auto-filled from the bibliography entry">
                     <div class="field-note" style="display: block;">Only the bibliography entry is used in the generated HTML. The other lines are for copy/paste.</div>
-                </div>
-                <div class="form-group">
-                    <label for="dropboxUrl">Dropbox Link</label>
-                    <input type="text" id="dropboxUrl" placeholder="https://www.dropbox.com/...">
                 </div>
 
             </div>
@@ -639,9 +639,11 @@
         async function fillCitationFromPdfIfNeeded(pdf, staffPassword) {
             const citationInput = document.getElementById('citation');
             if (citationInput.value.trim()) {
-                fillDerivedCitationFields(citationInput.value.trim());
+                const citation = plainCitationText(citationInput.value.trim());
+                citationInput.value = citation;
+                fillDerivedCitationFields(citation);
                 showCitationNote('');
-                return citationInput.value.trim();
+                return citation;
             }
 
             showStatus('Reading PDF front matter for citation...');
@@ -654,10 +656,11 @@
                 const suggestion = workerSuggestion.heading || buildCitationSuggestion(lines);
 
                 if (suggestion) {
-                    citationInput.value = suggestion;
-                    fillDerivedCitationFields(suggestion);
+                    const citation = plainCitationText(suggestion);
+                    citationInput.value = citation;
+                    fillDerivedCitationFields(citation);
                     showCitationNote('Citation filled from PDF. Please review it in the generated preview.', 'success');
-                    return suggestion;
+                    return citation;
                 }
 
                 console.warn('No clear citation found:', workerSuggestion.note || 'No suggestion returned');
@@ -666,7 +669,7 @@
             }
 
             showCitationNote('Could not auto-fill a clear citation. Code generated anyway; edit the metadata lines and generate again if needed.', 'error');
-            return citationInput.value.trim() || FALLBACK_CITATION;
+            return plainCitationText(citationInput.value.trim()) || FALLBACK_CITATION;
         }
 
         async function analyzePDF() {
@@ -877,7 +880,7 @@
                 return formatChicagoCitation('', title.text);
             }
 
-            return escapeHtml(cleanCitationText(candidates[0].text));
+            return plainCitationText(candidates[0].text);
         }
 
         function chooseTitleLine(candidates) {
@@ -967,15 +970,20 @@
                 .trim();
         }
 
+        function plainCitationText(text) {
+            return cleanCitationText(stripHtml(text));
+        }
+
         function formatChicagoCitation(author, title, year = '') {
             const authorPart = formatChicagoAuthors(author);
-            const titlePart = title ? '<em>' + escapeHtml(trimTerminalPunctuation(title)) + '</em>.' : '';
-            const yearPart = year ? escapeHtml(year) + '.' : '';
+            const titlePart = title ? trimTerminalPunctuation(title) + '.' : '';
+            const yearPart = year ? year + '.' : '';
 
-            return [authorPart ? escapeHtml(authorPart) : '', titlePart, yearPart]
+            return [authorPart, titlePart, yearPart]
                 .filter(Boolean)
                 .join(' ')
-                .trim();
+                .trim()
+                .replace(/\s+/g, ' ');
         }
 
         function fillDerivedCitationFields(bibliography) {
@@ -998,18 +1006,19 @@
             }
 
             const parts = parseBibliographyCitation(bibliography);
-            if (!parts.titleHtml && !parts.authorText) {
-                return { footnote: bibliography, short: bibliography };
+            if (!parts.titleText && !parts.authorText) {
+                const plainBibliography = plainCitationText(bibliography);
+                return { footnote: plainBibliography, short: plainBibliography };
             }
 
             const footnoteAuthors = bibliographyAuthorsToFootnote(parts.authorText);
             const shortAuthors = trimTerminalPunctuation(parts.authorText);
-            const titleHtml = parts.titleHtml || escapeHtml(parts.titleText || '');
+            const titleText = trimTerminalPunctuation(parts.titleText || '');
             const footnote = [
                 footnoteAuthors,
-                titleHtml + (parts.publication ? ' (' + escapeHtml(parts.publication) + ')' : '')
+                titleText + (parts.publication ? ' (' + parts.publication + ')' : '')
             ].filter(Boolean).join(', ') + '.';
-            const short = [shortAuthors, titleHtml].filter(Boolean).join(', ');
+            const short = [shortAuthors, titleText].filter(Boolean).join(', ');
 
             return {
                 footnote: cleanCitationText(footnote),
@@ -1021,29 +1030,25 @@
             const source = cleanCitationText(bibliography);
             const emMatch = source.match(/<em>([\s\S]+?)<\/em>/i);
             let authorText = '';
-            let titleHtml = '';
             let titleText = '';
             let publication = '';
 
             if (emMatch) {
-                authorText = trimTerminalPunctuation(source.slice(0, emMatch.index));
-                titleText = cleanFrontMatterLine(stripHtml(emMatch[1]));
-                titleHtml = '<em>' + escapeHtml(titleText) + '</em>';
+                authorText = trimTerminalPunctuation(plainCitationText(source.slice(0, emMatch.index)));
+                titleText = plainCitationText(emMatch[1]);
                 publication = source.slice(emMatch.index + emMatch[0].length)
                     .replace(/^\s*[.,]\s*/, '');
             } else {
-                const pieces = source.split(/\.\s+/);
+                const pieces = plainCitationText(source).split(/\.\s+/);
                 authorText = trimTerminalPunctuation(pieces.shift() || '');
                 titleText = trimTerminalPunctuation(pieces.shift() || '');
-                titleHtml = titleText ? '<em>' + escapeHtml(titleText) + '</em>' : '';
                 publication = pieces.join('. ');
             }
 
             return {
                 authorText,
-                titleHtml,
                 titleText,
-                publication: trimTerminalPunctuation(stripHtml(publication))
+                publication: trimTerminalPunctuation(plainCitationText(publication))
             };
         }
 
@@ -1166,7 +1171,7 @@
 
         /* ── Shared CSS block (only in Part 1) ── */
         function buildStyleBlock(citation) {
-            return `<!-- ${escapeHtml(citation)} - Chapter Links -->
+            return `<!-- ${escapeHtml(plainCitationText(citation))} - Chapter Links -->
 <style>
 .dtl-chapters { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 .dtl-chapters-header { background: #f8f9fa; padding: 14px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px; border-radius: 6px; transition: background 0.2s; user-select: none; }
@@ -1206,11 +1211,12 @@
 
         function buildWrapperOpen(citation, partNum, totalParts) {
             const suffix = totalParts > 1 ? ` (Part ${partNum} of ${totalParts})` : '';
+            const citationHtml = escapeHtml(plainCitationText(citation));
             return `
 <div class="dtl-chapters open">
   <div class="dtl-chapters-header" onclick="this.parentElement.classList.toggle('open')" tabindex="0" onkeydown="if(event.key==='Enter' || event.key===' ') { event.preventDefault(); this.click(); }">
     <span class="dtl-chapters-arrow">▶</span>
-    <span class="dtl-chapters-citation">${citation}${suffix}</span>
+    <span class="dtl-chapters-citation">${citationHtml}${suffix}</span>
   </div>
   <div class="dtl-chapters-list">
     <ul>
@@ -1393,7 +1399,9 @@ function dtlOpenChapter(button) {
 
         document.getElementById('citation').addEventListener('change', function() {
             if (this.value.trim()) {
-                fillDerivedCitationFields(this.value.trim());
+                const citation = plainCitationText(this.value.trim());
+                this.value = citation;
+                fillDerivedCitationFields(citation);
             }
         });
 
