@@ -1811,6 +1811,21 @@
             };
         }
 
+        function formatCitationHtml(citation) {
+            const plainCitation = plainCitationText(citation);
+            const parts = parseBibliographyCitation(plainCitation);
+            if (!parts.authorText || !parts.titleText) {
+                return escapeHtml(plainCitation);
+            }
+
+            const authorHtml = escapeHtml(punctuateCitation(trimTerminalPunctuation(parts.authorText)));
+            const titleHtml = '<em>' + escapeHtml(trimTerminalPunctuation(parts.titleText)) + '</em>';
+            const publicationHtml = parts.publication
+                ? ' ' + escapeHtml(punctuateCitation(trimTerminalPunctuation(parts.publication)))
+                : '';
+            return authorHtml + ' ' + titleHtml + '.' + publicationHtml;
+        }
+
         function splitFootnotePublicationDetails(publication) {
             const sentences = splitCitationSentences(publication);
             if (sentences.length === 0) {
@@ -2223,7 +2238,7 @@
 
         function buildWrapperOpen(citation, partNum, totalParts) {
             const suffix = totalParts > 1 ? ` (Part ${partNum} of ${totalParts})` : '';
-            const citationHtml = escapeHtml(plainCitationText(citation));
+            const citationHtml = formatCitationHtml(citation);
             return `
 <div class="dtl-chapters open">
   <div class="dtl-chapters-header" onclick="this.parentElement.classList.toggle('open')" tabindex="0" onkeydown="if(event.key==='Enter' || event.key===' ') { event.preventDefault(); this.click(); }">
