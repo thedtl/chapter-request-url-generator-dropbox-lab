@@ -110,6 +110,47 @@
 
         .card-header h2 { font-size: 16px; font-weight: 600; }
 
+        .results-header {
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+
+        .ready-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .ready-copy-actions {
+            display: none;
+            align-items: center;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .ready-copy-actions.show {
+            display: flex;
+        }
+
+        .btn-copy-ready {
+            flex: 0 0 auto;
+            padding: 8px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            font-family: inherit;
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-copy-ready:hover { background: #059669; }
+
         .card-header .step {
             background: var(--primary);
             color: white;
@@ -367,6 +408,18 @@
             margin-bottom: 20px;
         }
 
+        @media (max-width: 640px) {
+            .results-header {
+                align-items: flex-start;
+            }
+
+            .ready-copy-actions {
+                width: 100%;
+                justify-content: flex-start;
+                margin-left: 40px;
+            }
+        }
+
         .preview-section {
             margin-top: 24px;
             padding-top: 24px;
@@ -528,9 +581,12 @@
         </div>
 
         <div class="card" id="resultsCard" style="display: none;">
-            <div class="card-header">
-                <span class="step">✓</span>
-                <h2>Ready to Copy</h2>
+            <div class="card-header results-header">
+                <div class="ready-title">
+                    <span class="step">✓</span>
+                    <h2>Ready to Copy</h2>
+                </div>
+                <div class="ready-copy-actions" id="readyCopyActions" aria-label="Copy generated HTML"></div>
             </div>
 
             <div class="status-bar" id="statusBar" style="display: none;"></div>
@@ -563,6 +619,8 @@
         let autoFilledCitation = { value: '', sourceKey: '' };
         const FALLBACK_CITATION = 'Citation needed';
         const FRONT_MATTER_PAGE_LIMIT = 12;
+        const NAME_CREDENTIAL_PATTERN = String.raw`(?:o\.?\s*f\.?\s*m\.?(?:\s*cap\.?)?|ofm\s*cap\.?|ofmcap|ofin\s*cap\.?|ofincap|s\.?\s*j\.?|o\.?\s*p\.?|o\.?\s*s\.?\s*b\.?|o\.?\s*c\.?\s*s\.?\s*o\.?|c\.?\s*s\.?\s*r\.?|s\.?\s*d\.?\s*b\.?|c\.?\s*s\.?\s*c\.?|ph\.?\s*d\.?|d\.?\s*phil\.?|m\.?\s*div\.?|th\.?\s*d\.?|d\.?\s*min\.?|ed\.?\s*d\.?|psy\.?\s*d\.?|s\.?\s*t\.?\s*d\.?|s\.?\s*t\.?\s*l\.?|j\.?\s*c\.?\s*d\.?|j\.?\s*d\.?|m\.?\s*d\.?|d\.?\s*d\.?|m\.?\s*s\.?\s*w\.?|l\.?\s*c\.?\s*s\.?\s*w\.?|l\.?\s*m\.?\s*s\.?\s*w\.?|m\.?\s*b\.?\s*a\.?|r\.?\s*n\.?|m\.\s*a\.|b\.\s*a\.|m\.\s*s\.|b\.\s*s\.)`;
+        const COMMA_NAME_CREDENTIAL_PATTERN = String.raw`(?:${NAME_CREDENTIAL_PATTERN}|m\s*a|b\s*a|m\s*s|b\s*s)`;
 
         document.addEventListener('DOMContentLoaded', () => {
             const savedPassword = sessionStorage.getItem('dtl_staff_password');
@@ -599,6 +657,12 @@
             bar.className = 'status-bar ' + type;
             body.style.display = type === 'loading' ? 'none' : 'block';
 
+            const readyCopyActions = document.getElementById('readyCopyActions');
+            if (type !== 'success') {
+                readyCopyActions.innerHTML = '';
+                readyCopyActions.classList.remove('show');
+            }
+
             if (type === 'loading') {
                 bar.innerHTML = '<div class="spinner"></div><span>' + message + '</span>';
             } else if (type === 'error') {
@@ -606,8 +670,6 @@
             } else if (type === 'success') {
                 bar.style.display = 'none';
             }
-
-            card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
         async function requestHeadingSuggestion(staffPassword, lines, images) {
@@ -1433,6 +1495,10 @@
 
         function normalizeResponsibilityStatement(text) {
             const cleaned = cleanCitationText(stripHtml(text));
+            if (!cleaned) {
+                return '';
+            }
+
             const match = cleaned.match(/^(.*?)\b(by|par)\b\s+(.+)$/i);
             if (!match) {
                 return sentenceCaseText(cleaned);
@@ -1444,18 +1510,48 @@
             return cleanCitationText(`${role} ${connector} ${name}`);
         }
 
+        function normalizeAiCitationText(text) {
+            return cleanCitationText(text).replace(/\b(by|par)\b\s+([^.;()]*?)(\s*)(?=[.;()]|$)/giu, (_match, connector, names, spacing) => {
+                const normalizedConnector = /^par$/i.test(connector) ? 'par' : 'by';
+                return `${normalizedConnector} ${normalizeContributorName(names)}${spacing}`;
+            });
+        }
+
         function formatResponsibilityRoles(lines) {
             return sentenceCaseText(cleanCitationText(lines.join(', ')));
         }
 
         function normalizeContributorName(text) {
-            return cleanCitationText(stripHtml(text))
+            return stripNameCredentials(text)
                 .replace(/[,;:]+$/g, '')
                 .replace(/\b[\p{L}'’-]+\b/gu, word => (
                     word.length > 1 && word === word.toLocaleUpperCase('fr')
                         ? word.charAt(0).toLocaleUpperCase('fr') + word.slice(1).toLocaleLowerCase('fr')
                         : word
                 ));
+        }
+
+        function stripNameCredentials(text) {
+            let cleaned = cleanCitationText(stripHtml(text))
+                .replace(/^[`'‘’"“”]+/g, '')
+                .replace(new RegExp(`\\s*,\\s*${COMMA_NAME_CREDENTIAL_PATTERN}\\.?\\s*(?=,)`, 'giu'), '')
+                .replace(new RegExp(`\\s+${NAME_CREDENTIAL_PATTERN}\\.?\\s*(?=,)`, 'giu'), '');
+
+            let previous = '';
+            while (cleaned && cleaned !== previous) {
+                previous = cleaned;
+                cleaned = cleaned
+                    .replace(new RegExp(`\\s*,\\s*${COMMA_NAME_CREDENTIAL_PATTERN}\\.?\\s*$`, 'iu'), '')
+                    .replace(new RegExp(`\\s+${NAME_CREDENTIAL_PATTERN}\\.?\\s*$`, 'iu'), '')
+                    .replace(/[,\s]+$/g, '')
+                    .trim();
+            }
+
+            if (new RegExp(`^(?:${COMMA_NAME_CREDENTIAL_PATTERN}|${NAME_CREDENTIAL_PATTERN})\\.?$`, 'iu').test(cleaned)) {
+                return '';
+            }
+
+            return cleaned;
         }
 
         function looksLikeContributorName(text) {
@@ -1491,10 +1587,10 @@
         }
 
         function cleanAuthorLine(text) {
-            return repairSplitInitialSurname(cleanFrontMatterLine(text)
+            return stripNameCredentials(repairSplitInitialSurname(cleanFrontMatterLine(text)
                 .replace(/^by\s+/i, '')
                 .replace(/^author\s*:\s*/i, '')
-                .replace(/\s+(?:지음|저|著)\s*$/u, ''))
+                .replace(/\s+(?:지음|저|著)\s*$/u, '')))
                 .trim();
         }
 
@@ -1530,7 +1626,7 @@
         function normalizeBibliographyCitation(bibliography) {
             if (bibliography === FALLBACK_CITATION) return FALLBACK_CITATION;
 
-            const plainBibliography = plainCitationText(bibliography);
+            const plainBibliography = normalizeAiCitationText(plainCitationText(bibliography));
             const parts = parseBibliographyCitation(plainBibliography);
             if (!parts.titleText || !parts.authorText) return plainBibliography;
 
@@ -1562,7 +1658,7 @@
 
             const parts = parseBibliographyCitation(bibliography);
             if (!parts.titleText && !parts.authorText) {
-                const plainBibliography = plainCitationText(bibliography);
+                const plainBibliography = normalizeAiCitationText(plainCitationText(bibliography));
                 return { footnote: plainBibliography, short: plainBibliography };
             }
 
@@ -1985,6 +2081,7 @@ function dtlOpenChapter(button) {
             // Result info
             document.getElementById('resultInfo').innerHTML =
                 '<strong>' + chapters.length + ' chapters</strong> extracted from a ' + totalPages + '-page PDF';
+            renderReadyCopyActions(parts);
 
             // Split notice
             const notice = document.getElementById('splitNotice');
@@ -2013,7 +2110,7 @@ function dtlOpenChapter(button) {
                         <pre></pre>
                     </div>
                     <div class="part-actions">
-                        <button class="btn-copy-part" onclick="copyPart(${i})">
+                        <button class="btn-copy-part" onclick="copyPart(${i}, this)">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -2036,10 +2133,27 @@ function dtlOpenChapter(button) {
             document.getElementById('resultsBody').style.display = 'block';
         }
 
-        function copyPart(index) {
+        function renderReadyCopyActions(parts) {
+            const actions = document.getElementById('readyCopyActions');
+            actions.innerHTML = '';
+
+            parts.forEach((part, index) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'btn-copy-ready';
+                button.textContent = parts.length === 1 ? 'Copy HTML' : 'Copy Part ' + part.partNumber;
+                button.addEventListener('click', () => copyPart(index, button));
+                actions.appendChild(button);
+            });
+
+            actions.classList.toggle('show', parts.length > 0);
+        }
+
+        function copyPart(index, btnElement) {
             const code = generatedParts[index].html;
             navigator.clipboard.writeText(code).then(() => {
                 showCopyConfirm(index);
+                if (btnElement) showInlineCopyConfirm(btnElement);
             }).catch(() => {
                 // Fallback
                 const textarea = document.createElement('textarea');
@@ -2049,6 +2163,7 @@ function dtlOpenChapter(button) {
                 document.execCommand('copy');
                 document.body.removeChild(textarea);
                 showCopyConfirm(index);
+                if (btnElement) showInlineCopyConfirm(btnElement);
             });
         }
 
