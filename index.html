@@ -620,6 +620,8 @@
         const FALLBACK_CITATION = 'Citation needed';
         const FRONT_MATTER_PAGE_LIMIT = 12;
         const BACK_MATTER_PAGE_LIMIT = 6;
+        const CITATION_IMAGE_RENDER_SCALE = 1.8;
+        const CITATION_IMAGE_JPEG_QUALITY = 0.9;
         const NAME_CREDENTIAL_PATTERN = String.raw`(?:o\.?\s*f\.?\s*m\.?(?:\s*cap\.?)?|ofm\s*cap\.?|ofmcap|ofin\s*cap\.?|ofincap|s\.?\s*j\.?|o\.?\s*p\.?|o\.?\s*s\.?\s*b\.?|o\.?\s*c\.?\s*s\.?\s*o\.?|c\.?\s*s\.?\s*r\.?|s\.?\s*d\.?\s*b\.?|c\.?\s*s\.?\s*c\.?|ph\.?\s*d\.?|d\.?\s*phil\.?|m\.?\s*div\.?|th\.?\s*d\.?|d\.?\s*min\.?|ed\.?\s*d\.?|psy\.?\s*d\.?|s\.?\s*t\.?\s*d\.?|s\.?\s*t\.?\s*l\.?|j\.?\s*c\.?\s*d\.?|j\.?\s*d\.?|m\.?\s*d\.?|d\.?\s*d\.?|m\.?\s*s\.?\s*w\.?|l\.?\s*c\.?\s*s\.?\s*w\.?|l\.?\s*m\.?\s*s\.?\s*w\.?|m\.?\s*b\.?\s*a\.?|r\.?\s*n\.?|m\.\s*a\.|b\.\s*a\.|m\.\s*s\.|b\.\s*s\.)`;
         const COMMA_NAME_CREDENTIAL_PATTERN = String.raw`(?:${NAME_CREDENTIAL_PATTERN}|m\s*a|b\s*a|m\s*s|b\s*s)`;
 
@@ -961,7 +963,7 @@
 
             for (const pageNumber of pageNumbers) {
                 const page = await pdf.getPage(pageNumber);
-                const viewport = page.getViewport({ scale: 1.35 });
+                const viewport = page.getViewport({ scale: CITATION_IMAGE_RENDER_SCALE });
                 const canvas = document.createElement('canvas');
                 const context = canvas.getContext('2d', { alpha: false });
                 canvas.width = Math.floor(viewport.width);
@@ -969,7 +971,7 @@
 
                 await page.render({ canvasContext: context, viewport }).promise;
 
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.74);
+                const dataUrl = canvas.toDataURL('image/jpeg', CITATION_IMAGE_JPEG_QUALITY);
                 images.push({
                     pageNumber,
                     mimeType: 'image/jpeg',
