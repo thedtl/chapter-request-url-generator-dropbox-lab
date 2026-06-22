@@ -206,6 +206,37 @@
         .field-note.error { color: var(--error); }
         .field-note.success { color: var(--success); }
 
+        .metadata-label-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .metadata-label-row label {
+            margin-bottom: 0;
+        }
+
+        .btn-copy-field {
+            flex: 0 0 auto;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid var(--gray-300);
+            font-family: inherit;
+            background: white;
+            color: var(--gray-700);
+        }
+
+        .btn-copy-field:hover {
+            background: var(--gray-50);
+            border-color: var(--gray-400);
+        }
+
         .status-bar {
             padding: 16px 24px;
             display: flex;
@@ -455,9 +486,27 @@
             </div>
             <div class="card-body">
                 <div class="form-group">
-                    <label for="citation">Citation <span class="label-hint">(Chicago-style bibliography entry)</span></label>
+                    <div class="metadata-label-row">
+                        <label for="citation">Citation <span class="label-hint">(Chicago-style bibliography entry)</span></label>
+                        <button type="button" class="btn-copy-field" onclick="copyMetadataField('citation', this)">Copy</button>
+                    </div>
                     <input type="text" id="citation" placeholder="Leave blank to fill from the PDF, or type your own citation">
                     <div id="citationSuggestionNote" class="field-note"></div>
+                </div>
+                <div class="form-group">
+                    <div class="metadata-label-row">
+                        <label for="footnoteCitation">Chicago Footnote Style</label>
+                        <button type="button" class="btn-copy-field" onclick="copyMetadataField('footnoteCitation', this)">Copy</button>
+                    </div>
+                    <input type="text" id="footnoteCitation" placeholder="Auto-filled from the bibliography entry">
+                </div>
+                <div class="form-group">
+                    <div class="metadata-label-row">
+                        <label for="shortCitation">Short Display Line</label>
+                        <button type="button" class="btn-copy-field" onclick="copyMetadataField('shortCitation', this)">Copy</button>
+                    </div>
+                    <input type="text" id="shortCitation" placeholder="Auto-filled from the bibliography entry">
+                    <div class="field-note" style="display: block;">Only the bibliography entry is used in the generated HTML. The other lines are for copy/paste.</div>
                 </div>
                 <div class="form-group">
                     <label for="dropboxUrl">Dropbox Link</label>
@@ -589,6 +638,7 @@
         async function fillCitationFromPdfIfNeeded(pdf, staffPassword) {
             const citationInput = document.getElementById('citation');
             if (citationInput.value.trim()) {
+                fillDerivedCitationFields(citationInput.value.trim());
                 showCitationNote('');
                 return citationInput.value.trim();
             }
@@ -606,6 +656,7 @@
             }
 
             citationInput.value = suggestion;
+            fillDerivedCitationFields(suggestion);
             showCitationNote('Citation filled from PDF. Please review it in the generated preview.', 'success');
             return suggestion;
         }
@@ -811,14 +862,14 @@
             const author = title ? chooseAuthorLine(candidates, title.index) : '';
 
             if (author && title) {
-                return cleanCitationText(author + ', ' + title.text);
+                return formatChicagoCitation(author, title.text);
             }
 
             if (title) {
-                return cleanCitationText(title.text);
+                return formatChicagoCitation('', title.text);
             }
 
-            return cleanCitationText(candidates[0].text);
+            return escapeHtml(cleanCitationText(candidates[0].text));
         }
 
         function chooseTitleLine(candidates) {
@@ -908,6 +959,173 @@
                 .trim();
         }
 
+        function formatChicagoCitation(author, title, year = '') {
+            const authorPart = formatChicagoAuthors(author);
+            const titlePart = title ? '<em>' + escapeHtml(trimTerminalPunctuation(title)) + '</em>.' : '';
+            const yearPart = year ? escapeHtml(year) + '.' : '';
+
+            return [authorPart ? escapeHtml(authorPart) : '', titlePart, yearPart]
+                .filter(Boolean)
+                .join(' ')
+                .trim();
+        }
+
+        function fillDerivedCitationFields(bibliography) {
+            const footnoteInput = document.getElementById('footnoteCitation');
+            const shortInput = document.getElementById('shortCitation');
+            const variants = buildCitationVariantsFromBibliography(bibliography);
+
+            if (!footnoteInput.value.trim() && variants.footnote) {
+                footnoteInput.value = variants.footnote;
+            }
+
+            if (!shortInput.value.trim() && variants.short) {
+                shortInput.value = variants.short;
+            }
+        }
+
+        function buildCitationVariantsFromBibliography(bibliography) {
+            const parts = parseBibliographyCitation(bibliography);
+            if (!parts.titleHtml && !parts.authorText) {
+                return { footnote: bibliography, short: bibliography };
+            }
+
+            const footnoteAuthors = bibliographyAuthorsToFootnote(parts.authorText);
+            const shortAuthors = trimTerminalPunctuation(parts.authorText);
+            const titleHtml = parts.titleHtml || escapeHtml(parts.titleText || '');
+            const footnote = [
+                footnoteAuthors,
+                titleHtml + (parts.publication ? ' (' + escapeHtml(parts.publication) + ')' : '')
+            ].filter(Boolean).join(', ') + '.';
+            const short = [shortAuthors, titleHtml].filter(Boolean).join(', ');
+
+            return {
+                footnote: cleanCitationText(footnote),
+                short: cleanCitationText(short)
+            };
+        }
+
+        function parseBibliographyCitation(bibliography) {
+            const source = cleanCitationText(bibliography);
+            const emMatch = source.match(/<em>([\s\S]+?)<\/em>/i);
+            let authorText = '';
+            let titleHtml = '';
+            let titleText = '';
+            let publication = '';
+
+            if (emMatch) {
+                authorText = trimTerminalPunctuation(source.slice(0, emMatch.index));
+                titleText = cleanFrontMatterLine(stripHtml(emMatch[1]));
+                titleHtml = '<em>' + escapeHtml(titleText) + '</em>';
+                publication = source.slice(emMatch.index + emMatch[0].length)
+                    .replace(/^\s*[.,]\s*/, '');
+            } else {
+                const pieces = source.split(/\.\s+/);
+                authorText = trimTerminalPunctuation(pieces.shift() || '');
+                titleText = trimTerminalPunctuation(pieces.shift() || '');
+                titleHtml = titleText ? '<em>' + escapeHtml(titleText) + '</em>' : '';
+                publication = pieces.join('. ');
+            }
+
+            return {
+                authorText,
+                titleHtml,
+                titleText,
+                publication: trimTerminalPunctuation(stripHtml(publication))
+            };
+        }
+
+        function bibliographyAuthorsToFootnote(authorText) {
+            const authors = splitBibliographyAuthors(authorText);
+            const normalNames = authors
+                .map((author, index) => {
+                    const cleaned = trimTerminalPunctuation(author);
+                    if (index === 0 || cleaned.includes(',')) {
+                        return invertBibliographyName(cleaned);
+                    }
+                    return cleaned;
+                })
+                .filter(Boolean);
+
+            if (normalNames.length <= 1) return normalNames[0] || '';
+            if (normalNames.length === 2) return normalNames[0] + ' and ' + normalNames[1];
+            return normalNames.slice(0, -1).join(', ') + ', and ' + normalNames[normalNames.length - 1];
+        }
+
+        function splitBibliographyAuthors(authorText) {
+            const cleaned = trimTerminalPunctuation(authorText);
+            if (!cleaned) return [];
+
+            const andMatch = cleaned.match(/^(.*?),?\s+and\s+(.+)$/i);
+            if (andMatch) {
+                return [andMatch[1], andMatch[2]];
+            }
+
+            return [cleaned];
+        }
+
+        function invertBibliographyName(name) {
+            const cleaned = trimTerminalPunctuation(name);
+            if (!cleaned.includes(',')) return cleaned;
+
+            const [last, ...rest] = cleaned.split(',');
+            const given = rest.join(',').trim();
+            return [given, last.trim()].filter(Boolean).join(' ');
+        }
+
+        function formatChicagoAuthors(author) {
+            const cleaned = cleanAuthorLine(author);
+            if (!cleaned) return '';
+
+            const names = cleaned
+                .split(/\s+(?:and|&)\s+/i)
+                .map(name => cleanFrontMatterLine(name))
+                .filter(Boolean);
+
+            if (names.length === 0) return '';
+
+            if (names.length === 1) {
+                return trimTerminalPunctuation(invertPersonalName(names[0])) + '.';
+            }
+
+            const first = trimTerminalPunctuation(invertPersonalName(names[0]));
+            const rest = names.slice(1).map(trimTerminalPunctuation);
+
+            if (rest.length === 1) {
+                return first + ', and ' + rest[0] + '.';
+            }
+
+            return first + ', ' + rest.slice(0, -1).join(', ') + ', and ' + rest[rest.length - 1] + '.';
+        }
+
+        function invertPersonalName(name) {
+            const cleaned = cleanFrontMatterLine(name);
+            if (!cleaned || cleaned.includes(',')) return cleaned;
+
+            const parts = cleaned.split(/\s+/);
+            if (parts.length < 2) return cleaned;
+
+            const suffixes = ['Jr.', 'Jr', 'Sr.', 'Sr', 'II', 'III', 'IV', 'V'];
+            let suffix = '';
+            if (suffixes.includes(parts[parts.length - 1])) {
+                suffix = parts.pop();
+            }
+
+            const last = parts.pop();
+            const given = parts.join(' ');
+            return last + ', ' + given + (suffix ? ', ' + suffix : '');
+        }
+
+        function trimTerminalPunctuation(text) {
+            return cleanFrontMatterLine(text).replace(/[.,;:]+$/g, '');
+        }
+
+        function stripHtml(text) {
+            const div = document.createElement('div');
+            div.innerHTML = String(text || '');
+            return div.textContent || '';
+        }
+
         function isMostlyAllCaps(text) {
             const letters = text.replace(/[^A-Za-z]/g, '');
             if (letters.length < 4) return false;
@@ -980,7 +1198,7 @@
 <div class="dtl-chapters open">
   <div class="dtl-chapters-header" onclick="this.parentElement.classList.toggle('open')" tabindex="0" onkeydown="if(event.key==='Enter' || event.key===' ') { event.preventDefault(); this.click(); }">
     <span class="dtl-chapters-arrow">▶</span>
-    <span class="dtl-chapters-citation">${escapeHtml(citation)}${suffix}</span>
+    <span class="dtl-chapters-citation">${citation}${suffix}</span>
   </div>
   <div class="dtl-chapters-list">
     <ul>
@@ -1107,6 +1325,36 @@ function dtlOpenChapter(button) {
             });
         }
 
+        function copyMetadataField(fieldId, btnElement) {
+            const field = document.getElementById(fieldId);
+            navigator.clipboard.writeText(field.value).then(() => {
+                showInlineCopyConfirm(btnElement);
+            }).catch(() => {
+                const textarea = document.createElement('textarea');
+                textarea.value = field.value;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showInlineCopyConfirm(btnElement);
+            });
+        }
+
+        function showInlineCopyConfirm(btnElement) {
+            const originalText = btnElement.textContent;
+            btnElement.textContent = 'Copied!';
+            btnElement.style.background = '#d1fae5';
+            btnElement.style.borderColor = '#10b981';
+            btnElement.style.color = '#065f46';
+
+            setTimeout(() => {
+                btnElement.textContent = originalText;
+                btnElement.style.background = 'white';
+                btnElement.style.borderColor = '';
+                btnElement.style.color = '';
+            }, 2000);
+        }
+
         function showCopyConfirm(index) {
             const el = document.getElementById('copyConfirm' + index);
             el.classList.add('show');
@@ -1129,6 +1377,12 @@ function dtlOpenChapter(button) {
 
         document.getElementById('staffPassword').addEventListener('keypress', e => {
             if (e.key === 'Enter') document.getElementById('citation').focus();
+        });
+
+        document.getElementById('citation').addEventListener('change', function() {
+            if (this.value.trim()) {
+                fillDerivedCitationFields(this.value.trim());
+            }
         });
 
         document.getElementById('citation').addEventListener('keypress', e => {
