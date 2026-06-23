@@ -278,6 +278,45 @@
             border-color: var(--gray-400);
         }
 
+        .next-book-row {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 18px;
+            padding-top: 16px;
+            border-top: 1px solid var(--gray-100);
+        }
+
+        .btn-next-book {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 9px 14px;
+            font-size: 13px;
+            font-weight: 700;
+            border-radius: 7px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid #0f766e;
+            font-family: inherit;
+            background: #ecfeff;
+            color: #0f766e;
+        }
+
+        .btn-next-book:hover:not(:disabled) {
+            background: #ccfbf1;
+            border-color: #0d9488;
+            color: #115e59;
+        }
+
+        .btn-next-book:disabled {
+            cursor: not-allowed;
+            opacity: 0.45;
+            background: var(--gray-50);
+            border-color: var(--gray-300);
+            color: var(--gray-500);
+        }
+
         .status-bar {
             padding: 16px 24px;
             display: flex;
@@ -564,6 +603,9 @@
                     </div>
                     <input type="text" id="shortCitation" placeholder="Auto-filled from the bibliography entry">
                     <div class="field-note" style="display: block;">Only the bibliography entry is used in the generated HTML. The other lines are for copy/paste.</div>
+                    <div class="next-book-row">
+                        <button type="button" id="startNextBookButton" class="btn-next-book" onclick="startNextBook()" title="Clear this book's fields and keep the password" disabled>Start Next Book</button>
+                    </div>
                 </div>
 
             </div>
@@ -758,6 +800,40 @@
             autoFilledCitation = { value: '', sourceKey: '' };
         }
 
+        function updateNextBookButton() {
+            const button = document.getElementById('startNextBookButton');
+            if (!button) return;
+            button.disabled = generatedParts.length === 0;
+        }
+
+        function startNextBook() {
+            if (generatedParts.length === 0) return;
+
+            generatedParts = [];
+            clearCitationAutoFillState();
+
+            document.getElementById('dropboxUrl').value = '';
+            document.getElementById('citation').value = '';
+            document.getElementById('footnoteCitation').value = '';
+            document.getElementById('shortCitation').value = '';
+            showCitationNote('');
+
+            const readyCopyActions = document.getElementById('readyCopyActions');
+            readyCopyActions.innerHTML = '';
+            readyCopyActions.classList.remove('show');
+
+            document.getElementById('resultInfo').innerHTML = '';
+            document.getElementById('splitNotice').style.display = 'none';
+            document.getElementById('partsContainer').innerHTML = '';
+            document.getElementById('previewBox').innerHTML = '';
+            document.getElementById('resultsBody').style.display = 'block';
+            document.getElementById('statusBar').style.display = 'none';
+            document.getElementById('resultsCard').style.display = 'none';
+
+            updateNextBookButton();
+            document.getElementById('dropboxUrl').focus();
+        }
+
         async function analyzePDF() {
             const staffPassword = document.getElementById('staffPassword').value;
             let citation = document.getElementById('citation').value.trim();
@@ -780,6 +856,8 @@
                 return;
             }
 
+            generatedParts = [];
+            updateNextBookButton();
             showStatus('Loading PDF and extracting chapters...');
 
             try {
@@ -2307,6 +2385,7 @@ function dtlOpenChapter(button) {
         function generateOutput(citation, chapters, tokens, totalPages) {
             const parts = splitIntoParts(citation, chapters, tokens);
             generatedParts = parts;
+            updateNextBookButton();
 
             // Result info
             document.getElementById('resultInfo').innerHTML =
