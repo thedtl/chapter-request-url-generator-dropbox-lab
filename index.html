@@ -817,6 +817,7 @@
             document.getElementById('footnoteCitation').value = '';
             document.getElementById('shortCitation').value = '';
             showCitationNote('');
+            resetCopyButtons();
 
             const readyCopyActions = document.getElementById('readyCopyActions');
             readyCopyActions.innerHTML = '';
@@ -2976,21 +2977,38 @@ function dtlOpenChapter(button) {
         }
 
         function showInlineCopyConfirm(btnElement) {
-            const originalText = btnElement.textContent;
-            const originalBackground = btnElement.style.background;
-            const originalBorderColor = btnElement.style.borderColor;
-            const originalColor = btnElement.style.color;
+            if (!btnElement.dataset.copyDefaultText) {
+                btnElement.dataset.copyDefaultText = btnElement.textContent;
+            }
+            if (btnElement.copyResetTimer) {
+                clearTimeout(btnElement.copyResetTimer);
+            }
             btnElement.textContent = 'Copied!';
             btnElement.style.background = '#d1fae5';
             btnElement.style.borderColor = '#10b981';
             btnElement.style.color = '#065f46';
 
-            setTimeout(() => {
-                btnElement.textContent = originalText;
-                btnElement.style.background = originalBackground;
-                btnElement.style.borderColor = originalBorderColor;
-                btnElement.style.color = originalColor;
-            }, 2000);
+            btnElement.copyResetTimer = setTimeout(() => resetCopyButtonState(btnElement), 2000);
+        }
+
+        function resetCopyButtons() {
+            document.querySelectorAll('.btn-copy-field').forEach(button => {
+                resetCopyButtonState(button, 'Copy');
+            });
+        }
+
+        function resetCopyButtonState(button, defaultText = '') {
+            if (!button) return;
+            if (button.copyResetTimer) {
+                clearTimeout(button.copyResetTimer);
+                button.copyResetTimer = null;
+            }
+            button.textContent = defaultText || button.dataset.copyDefaultText || 'Copy';
+            button.classList.remove('copied', 'success', 'btn-success');
+            button.disabled = false;
+            button.style.background = '';
+            button.style.borderColor = '';
+            button.style.color = '';
         }
 
         function showCopyConfirm(index) {
