@@ -1786,12 +1786,12 @@
 
             const plainBibliography = normalizeAiCitationText(plainCitationText(bibliography));
             const parts = parseBibliographyCitation(plainBibliography);
-            if (!parts.titleText || !parts.authorText) return plainBibliography;
+            if (!parts.titleText) return plainBibliography;
 
-            const authorPart = formatChicagoAuthors(parts.authorText);
-            const titlePart = formatCitationTitle(parts.titleText) + '.';
+            const authorPart = parts.authorText ? formatCmsBibliographyAuthors(parts.authorText) : '';
+            const titlePart = formatFormalCitationTitle(parts.titleText) + '.';
             const normalizedPublication = parts.publication ? normalizeBibliographyPublication(parts.publication) : '';
-            const publicationPart = normalizedPublication ? normalizedPublication + '.' : '';
+            const publicationPart = normalizedPublication ? punctuateCitation(normalizedPublication) : '';
 
             return cleanCitationText([authorPart, titlePart, publicationPart].filter(Boolean).join(' '));
         }
@@ -1799,8 +1799,8 @@
         function normalizeAutoFilledCitation(bibliography, source = '') {
             const cleaned = normalizeAiCitationText(plainCitationText(bibliography));
             if (!cleaned || cleaned === FALLBACK_CITATION) return cleaned;
-            if (source === 'ai') return punctuateCitation(cleaned);
-            return normalizeBibliographyCitation(cleaned);
+            const normalized = normalizeBibliographyCitation(cleaned);
+            return normalized && normalized !== FALLBACK_CITATION ? normalized : punctuateCitation(cleaned);
         }
 
         function punctuateCitation(text) {
@@ -1813,7 +1813,7 @@
             let cleaned = stripNonTitleLatinBracketedEquivalents(trimTerminalPunctuation(publication));
             cleaned = cleanCitationText(cleaned.replace(/(:\s*)(?:발행처|출판사|펴낸곳|펴낸 곳|출판|발행)\s*[:：]?\s*/u, '$1'));
             if (looksLikeNonPublisherCredit(cleaned)) return '';
-            return trimTerminalPunctuation(cleaned);
+            return normalizeFormalBookPublication(cleaned);
         }
 
         function fillDerivedCitationFields(bibliography) {
@@ -1842,11 +1842,12 @@
             }
 
             const footnoteAuthors = bibliographyAuthorsToFootnote(parts.authorText);
-            const titleText = formatCitationTitle(parts.titleText || '');
+            const titleText = formatFormalCitationTitle(parts.titleText || '');
             const footnotePublication = splitFootnotePublicationDetails(parts.publication);
+            const footnoteDetails = normalizeFootnoteBookDetails(footnotePublication.details);
             const titleAndDetails = [
                 titleText,
-                footnotePublication.details
+                footnoteDetails
             ].filter(Boolean).join(', ');
             const titleAndImprint = titleAndDetails + (footnotePublication.imprint ? ' (' + footnotePublication.imprint + ')' : '');
             const footnote = [
@@ -1861,6 +1862,82 @@
                 footnote: cleanCitationText(footnote),
                 short: cleanCitationText(short)
             };
+        }
+
+        function formatFormalCitationTitle(title) {
+            const titleVolume = extractTrailingVolumeMarker(title);
+            const baseTitle = formatCitationTitle(titleVolume.title || title);
+            return [baseTitle, titleVolume.marker].filter(Boolean).join(', ');
+        }
+
+        function normalizeFormalBookPublication(publication) {
+            const sentences = splitCitationSentences(publication)
+                .map(sentence => normalizeFormalBookDetail(sentence, 'bibliography'))
+                .filter(Boolean);
+            if (sentences.length === 0) {
+                return normalizeFormalBookDetail(publication, 'bibliography');
+            }
+
+            return joinCitationSentences(sentences);
+        }
+
+        function normalizeFootnoteBookDetails(details) {
+            return normalizeFormalBookDetail(details, 'footnote');
+        }
+
+        function normalizeFormalBookDetail(text, style = 'bibliography') {
+            let cleaned = trimTerminalPunctuation(text);
+            if (!cleaned) return '';
+
+            if (style === 'footnote') {
+                cleaned = normalizeFootnoteResponsibilityPhrase(cleaned);
+            }
+
+            cleaned = normalizeFormalEditionDetail(cleaned);
+            cleaned = normalizeFormalVolumeDetail(cleaned);
+            cleaned = normalizeFormalContributorRoleReferences(cleaned);
+            return cleanCitationText(cleaned);
+        }
+
+        function normalizeFootnoteResponsibilityPhrase(text) {
+            return cleanCitationText(text)
+                .replace(/^translation(?:\s+and\s+commentary|\s+with\s+[^,.;]+|\s+and\s+with\s+[^,.;]+)?\s+by\s+/i, 'trans. ')
+                .replace(/^translated(?:\s+and\s+edited|\s+with\s+[^,.;]+|\s+and\s+with\s+[^,.;]+)?\s+by\s+/i, 'trans. ')
+                .replace(/^edited(?:\s+with\s+[^,.;]+|\s+and\s+[^,.;]+)?\s+by\s+/i, 'ed. ')
+                .replace(/^compiled(?:\s+with\s+[^,.;]+|\s+and\s+[^,.;]+)?\s+by\s+/i, 'comp. ');
+        }
+
+        function normalizeFormalEditionDetail(text) {
+            return cleanCitationText(text)
+                .replace(/\brev\.?\s+ed\.?\b/gi, 'rev. ed.')
+                .replace(/\b([0-9]+)(st|nd|rd|th)\s+ed\.?\b/gi, (match, number, suffix) => `${number}${suffix.toLocaleLowerCase('en')} ed.`);
+        }
+
+        function normalizeFormalVolumeDetail(text) {
+            let cleaned = cleanCitationText(text)
+                .replace(/\b([0-9]+)\s+vols?\.?\b/gi, (match, number) => `${number} vols.`);
+
+            cleaned = cleaned.replace(/\bvol(?:ume)?\.?\s+([0-9]+|[ivxlcdm]+|[a-z]+(?:[-\s][a-z]+)?)\b/gi, match => {
+                const marker = normalizeVolumeMarker(match);
+                return marker || match;
+            });
+
+            return cleanCitationText(cleaned);
+        }
+
+        function normalizeFormalContributorRoleReferences(text) {
+            return cleanCitationText(text).replace(/,\s*(eds?\.?|comps?\.?|trans\.?)(?=$|[,;)])/gi, (match, role) => {
+                return ', ' + normalizeCreatorRoleToken(role);
+            });
+        }
+
+        function joinCitationSentences(sentences) {
+            return sentences.reduce((joined, sentence) => {
+                const cleaned = cleanCitationText(sentence);
+                if (!cleaned) return joined;
+                if (!joined) return cleaned;
+                return joined + (/[.!?]$/.test(joined) ? ' ' : '. ') + cleaned;
+            }, '');
         }
 
         function formatShortDisplayTitle(title, details = '') {
@@ -2141,9 +2218,15 @@
                 publication = pieces.join('. ');
             } else {
                 const pieces = splitCitationSentences(source);
-                authorText = trimTerminalPunctuation(pieces.shift() || '');
-                titleText = trimTerminalPunctuation(pieces.shift() || '');
-                publication = pieces.join('. ');
+                const first = trimTerminalPunctuation(pieces.shift() || '');
+                if (shouldParseAsTitleFirstCitation(first, pieces)) {
+                    titleText = first;
+                    publication = pieces.join('. ');
+                } else {
+                    authorText = first;
+                    titleText = trimTerminalPunctuation(pieces.shift() || '');
+                    publication = pieces.join('. ');
+                }
             }
 
             return {
@@ -2151,6 +2234,29 @@
                 titleText,
                 publication: trimTerminalPunctuation(plainCitationText(publication))
             };
+        }
+
+        function shouldParseAsTitleFirstCitation(firstSentence, remainingSentences) {
+            const first = cleanCitationText(firstSentence);
+            if (!first || remainingSentences.length === 0) return false;
+            if (first.includes(',')) return false;
+            if (containsNonLatinScript(first)) return false;
+            if (looksLikeCorporateAuthor(first)) return false;
+
+            const remainder = remainingSentences.join('. ');
+            const hasPublication = remainingSentences.some(sentence => looksLikePublicationImprint(sentence)) ||
+                looksLikePublicationImprint(remainder);
+            if (!hasPublication) return false;
+
+            if (/^(?:a|an|the)\s+\p{Lu}/iu.test(first) && first.split(/\s+/).length > 3) {
+                return true;
+            }
+
+            return !looksLikePersonalName(first);
+        }
+
+        function looksLikeCorporateAuthor(text) {
+            return /\b(university|college|press|publisher|publishers|committee|commission|council|association|society|church|ministry|department|office|institute|center|centre|library|museum)\b/i.test(cleanCitationText(text));
         }
 
         function formatCitationHtml(citation) {
@@ -2258,6 +2364,14 @@
 
         function bibliographyAuthorsToFootnote(authorText) {
             const authors = splitBibliographyAuthors(authorText);
+            const sharedRole = authors.length ? extractCreatorRoleSuffix(authors[authors.length - 1]).role : '';
+            const noteAuthors = authors.map(author => extractCreatorRoleSuffix(author).name);
+
+            if (noteAuthors.length >= 4) {
+                const first = invertBibliographyName(noteAuthors[0]);
+                return [first + ' et al.', sharedRole].filter(Boolean).join(', ');
+            }
+
             const normalNames = authors
                 .map((author, index) => {
                     const cleaned = trimAuthorName(author);
@@ -2278,7 +2392,7 @@
         }
 
         function invertBibliographyName(name) {
-            const role = extractEditorRoleSuffix(name);
+            const role = extractCreatorRoleSuffix(name);
             const cleaned = trimAuthorName(role.name);
             if (!cleaned.includes(',')) {
                 return [cleaned, role.role].filter(Boolean).join(', ');
@@ -2290,16 +2404,16 @@
             return [inverted, role.role].filter(Boolean).join(', ');
         }
 
-        function extractEditorRoleSuffix(name) {
+        function extractCreatorRoleSuffix(name) {
             const cleaned = trimAuthorName(name);
-            const match = cleaned.match(/^(.*?)\s*,?\s+(eds?\.?)$/i);
+            const match = cleaned.match(/^(.*?)\s*,?\s+(eds?\.?|comps?\.?|trans\.?)$/i);
             if (!match) {
                 return { name: cleaned, role: '' };
             }
 
             return {
                 name: trimAuthorName(match[1]),
-                role: normalizeEditorRoleToken(match[2])
+                role: normalizeCreatorRoleToken(match[2])
             };
         }
 
@@ -2327,8 +2441,8 @@
             }
 
             for (; index < pieces.length; index++) {
-                if (isEditorRoleToken(pieces[index]) && names.length > 0) {
-                    names[names.length - 1] = `${trimAuthorName(names[names.length - 1])}, ${normalizeEditorRoleToken(pieces[index])}`;
+                if (isCreatorRoleToken(pieces[index]) && names.length > 0) {
+                    names[names.length - 1] = `${trimAuthorName(names[names.length - 1])}, ${normalizeCreatorRoleToken(pieces[index])}`;
                     continue;
                 }
                 names.push(pieces[index]);
@@ -2337,12 +2451,8 @@
             return names;
         }
 
-        function isEditorRoleToken(text) {
-            return /^eds?\.?$/i.test(cleanFrontMatterLine(text));
-        }
-
-        function normalizeEditorRoleToken(text) {
-            return /^eds/i.test(cleanFrontMatterLine(text)) ? 'eds.' : 'ed.';
+        function isCreatorRoleToken(text) {
+            return Boolean(normalizeCreatorRoleToken(text));
         }
 
         function looksLikeSingleNonLatinAuthorName(cleaned, pieces) {
@@ -2378,6 +2488,27 @@
             const nameWords = words.filter(word => /^(\p{Lu}[\p{L}'’-]*\.?|[A-Z]\.)$/u.test(word) || /^\p{Ll}{1,3}$/u.test(word));
             const capitalizedWords = words.filter(word => /^(\p{Lu}[\p{L}'’-]*\.?|[A-Z]\.)$/u.test(word));
             return nameWords.length === words.length && capitalizedWords.length >= 2;
+        }
+
+        function formatCmsBibliographyAuthors(author) {
+            const cleaned = cleanAuthorLine(author);
+            if (!cleaned) return '';
+
+            const names = splitAuthorNames(cleaned)
+                .map(name => normalizeContributorName(name))
+                .filter(Boolean);
+            if (names.length === 0) return '';
+
+            if (names.length > 10) {
+                const sharedRole = extractCreatorRoleSuffix(names[names.length - 1]).role;
+                const firstSeven = names.slice(0, 7).map(name => trimAuthorName(extractCreatorRoleSuffix(name).name));
+                const first = trimAuthorName(invertPersonalName(firstSeven[0]));
+                const rest = firstSeven.slice(1).map(trimAuthorName);
+                const authorList = [first, ...rest].filter(Boolean).join(', ') + ', et al' + (sharedRole ? ', ' + sharedRole : '');
+                return punctuateAuthorList(authorList);
+            }
+
+            return formatChicagoAuthors(cleaned);
         }
 
         function formatChicagoAuthors(author) {
