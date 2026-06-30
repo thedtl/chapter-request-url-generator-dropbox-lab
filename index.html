@@ -1907,10 +1907,10 @@
 
         function normalizeFootnoteResponsibilityPhrase(text) {
             return cleanCitationText(text)
-                .replace(/^translation(?:\s+and\s+commentary|\s+with\s+[^,.;]+|\s+and\s+with\s+[^,.;]+)?\s+by\s+/i, 'trans. ')
-                .replace(/^translated(?:\s+and\s+edited|\s+with\s+[^,.;]+|\s+and\s+with\s+[^,.;]+)?\s+by\s+/i, 'trans. ')
-                .replace(/^edited(?:\s+with\s+[^,.;]+|\s+and\s+[^,.;]+)?\s+by\s+/i, 'ed. ')
-                .replace(/^compiled(?:\s+with\s+[^,.;]+|\s+and\s+[^,.;]+)?\s+by\s+/i, 'comp. ');
+                .replace(/(^|,\s*)translation(?:\s+and\s+commentary|\s+with\s+[^,.;]+|\s+and\s+with\s+[^,.;]+)?\s+by\s+/gi, '$1trans. ')
+                .replace(/(^|,\s*)translated(?:\s+and\s+edited|\s+with\s+[^,.;]+|\s+and\s+with\s+[^,.;]+)?\s+by\s+/gi, '$1trans. ')
+                .replace(/(^|,\s*)edited(?:\s+with\s+[^,.;]+|\s+and\s+[^,.;]+)?\s+by\s+/gi, '$1ed. ')
+                .replace(/(^|,\s*)compiled(?:\s+with\s+[^,.;]+|\s+and\s+[^,.;]+)?\s+by\s+/gi, '$1comp. ');
         }
 
         function normalizeFormalEditionDetail(text) {
