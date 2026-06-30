@@ -1631,12 +1631,18 @@
         }
 
         function normalizeAiCitationText(text) {
-            const cleaned = cleanCitationText(text).replace(/\b(by|par)\b\s+([^.;()]*?)(\s*)(?=[.;()]|$)/giu, (_match, connector, names, spacing) => {
-                const normalizedConnector = /^par$/i.test(connector) ? 'par' : 'by';
-                return `${normalizedConnector} ${normalizeContributorName(names)}${spacing}`;
-            });
+            const cleaned = normalizeCompoundCreatorRoleText(text)
+                .replace(/\b(by|par)\b\s+([^.;()]*?)(\s*)(?=[.;()]|$)/giu, (_match, connector, names, spacing) => {
+                    const normalizedConnector = /^par$/i.test(connector) ? 'par' : 'by';
+                    return `${normalizedConnector} ${normalizeContributorName(names)}${spacing}`;
+                });
 
             return normalizeLeadingInvertedInitialAuthorHeading(cleaned);
+        }
+
+        function normalizeCompoundCreatorRoleText(text) {
+            return cleanCitationText(text)
+                .replace(/\btrans\.?\s+(?:and|&)\s+comm\.?(?=\s|[,.;:]|$)/gi, 'trans.');
         }
 
         function formatResponsibilityRoles(lines) {
@@ -2156,7 +2162,8 @@
         }
 
         function looksLikeZoharShortTitle(title) {
-            return /\bthe\s+zohar\b/i.test(cleanCitationText(title));
+            const cleaned = cleanCitationText(title);
+            return /\bthe\s+zohar\b/i.test(cleaned) || /ספר\s*ה(?:זוהר|זהר)/u.test(cleaned);
         }
 
         function formatShortDisplayCreators(authorText, fallbackRole = '') {
@@ -2170,7 +2177,7 @@
 
         function extractSharedCreatorRole(authorText) {
             const cleaned = trimTerminalPunctuation(cleanAuthorLine(authorText));
-            const match = cleaned.match(/^(.*?)\s*,?\s+(eds?\.?|comps?\.?)$/i);
+            const match = cleaned.match(/^(.*?)\s*,?\s+(eds?\.?|comps?\.?|trans\.?(?:\s+(?:and|&)\s+comm\.?)?)$/i);
             if (!match) {
                 return { names: cleaned, role: '' };
             }
@@ -2190,6 +2197,7 @@
 
         function normalizeCreatorRoleToken(text) {
             const cleaned = cleanFrontMatterLine(text).toLocaleLowerCase('en').replace(/\.$/, '');
+            if (/^trans\.?\s+(?:and|&)\s+comm$/.test(cleaned)) return 'trans.';
             if (cleaned === 'eds') return 'eds.';
             if (cleaned === 'ed') return 'ed.';
             if (cleaned === 'comps') return 'comps.';
@@ -2199,7 +2207,7 @@
         }
 
         function parseBibliographyCitation(bibliography) {
-            const source = normalizeLeadingInvertedInitialAuthorHeading(cleanCitationText(bibliography));
+            const source = normalizeLeadingInvertedInitialAuthorHeading(normalizeCompoundCreatorRoleText(bibliography));
             const emMatch = source.match(/<em>([\s\S]+?)<\/em>/i);
             let authorText = '';
             let titleText = '';
@@ -2406,7 +2414,7 @@
 
         function extractCreatorRoleSuffix(name) {
             const cleaned = trimAuthorName(name);
-            const match = cleaned.match(/^(.*?)\s*,?\s+(eds?\.?|comps?\.?|trans\.?)$/i);
+            const match = cleaned.match(/^(.*?)\s*,?\s+(eds?\.?|comps?\.?|trans\.?(?:\s+(?:and|&)\s+comm\.?)?)$/i);
             if (!match) {
                 return { name: cleaned, role: '' };
             }
