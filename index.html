@@ -1904,7 +1904,8 @@
                 titleText,
                 footnoteDetails
             ].filter(Boolean).join(', ');
-            const titleAndImprint = titleAndDetails + (footnotePublication.imprint ? ' (' + footnotePublication.imprint + ')' : '');
+            const footnoteImprint = footnotePublication.imprint ? normalizeFormalPublicationImprint(footnotePublication.imprint) : '';
+            const titleAndImprint = titleAndDetails + (footnoteImprint ? ' (' + footnoteImprint + ')' : '');
             const footnote = [
                 footnoteAuthors,
                 titleAndImprint
@@ -1988,8 +1989,13 @@
                 cleaned = normalizeFootnoteResponsibilityPhrase(cleaned);
             }
 
+            if (looksLikePublicationImprint(cleaned)) {
+                return normalizeFormalPublicationImprint(cleaned);
+            }
+
             cleaned = normalizeFormalEditionDetail(cleaned);
-            cleaned = normalizeFormalVolumeDetail(cleaned);
+            cleaned = normalizeFormalVolumeDetail(cleaned, style);
+            cleaned = normalizeFormalSeriesDetail(cleaned);
             cleaned = normalizeFormalContributorRoleReferences(cleaned);
             return cleanCitationText(cleaned);
         }
@@ -2008,17 +2014,116 @@
                 .replace(/\b([0-9]+)(st|nd|rd|th)\s+ed\.?\b/gi, (match, number, suffix) => `${number}${suffix.toLocaleLowerCase('en')} ed.`);
         }
 
-        function normalizeFormalVolumeDetail(text) {
+        function normalizeFormalVolumeDetail(text, style = 'bibliography') {
             let cleaned = cleanCitationText(text)
                 .replace(/\b([0-9]+)\s+vols?\.?\b/gi, (match, number) => `${number} vols.`);
 
-            cleaned = cleaned.replace(/\bvol(?:ume)?\.?\s+([0-9]+|[ivxlcdm]+|[a-z]+(?:[-\s][a-z]+)?)\b/gi, match => {
+            cleaned = cleaned.replace(/\bvol(?:ume)?\.?\s+([0-9]+|[ivxlcdm]+|[a-z]+(?:[-\s][a-z]+)?)\b/gi, (match, _number, offset) => {
                 const marker = normalizeVolumeMarker(match);
-                return marker || match;
+                return marker ? formatFormalVolumeMarker(marker, style, offset === 0) : match;
             });
 
             return cleanCitationText(cleaned);
         }
+
+        function formatFormalVolumeMarker(marker, style = 'bibliography', startsDetail = false) {
+            const cleaned = normalizeVolumeMarker(marker);
+            if (!cleaned) return marker;
+            return style === 'bibliography' && startsDetail
+                ? cleaned.replace(/^vol\./i, 'Vol.')
+                : cleaned;
+        }
+
+        function normalizeFormalSeriesDetail(text) {
+            const cleaned = cleanCitationText(text);
+            const match = cleaned.match(/^(.+?\b(?:series|library|collection)\b)\s*,?\s*(?:no\.?|number)\s+([0-9]+|[ivxlcdm]+|[a-z]+(?:[-\s][a-z]+)?)$/i);
+            if (!match) return cleaned;
+
+            const number = normalizeGeneralNumber(match[2]);
+            return number ? cleanCitationText(`${match[1]} ${number}`) : cleaned;
+        }
+
+        function normalizeFormalPublicationImprint(text) {
+            const cleaned = trimTerminalPunctuation(cleanCitationText(text));
+            const separatorIndex = cleaned.indexOf(':');
+            if (separatorIndex < 0) return cleaned;
+
+            const place = normalizeCitationPlace(cleaned.slice(0, separatorIndex));
+            const remainder = cleanCitationText(cleaned.slice(separatorIndex + 1));
+            const yearMatch = remainder.match(/^(.*?),\s*((?:1[5-9]\d{2}|20\d{2})(?:[a-z]?)?)$/i);
+            if (!yearMatch) {
+                return cleanCitationText(`${place}: ${normalizeCitationPublisher(remainder)}`);
+            }
+
+            return cleanCitationText(`${place}: ${normalizeCitationPublisher(yearMatch[1])}, ${yearMatch[2]}`);
+        }
+
+        function normalizeCitationPlace(text) {
+            return cleanCitationText(text).replace(/,\s*([A-Za-z][A-Za-z .'-]+)$/g, (match, state) => {
+                const abbreviation = US_STATE_ABBREVIATIONS[state.toLocaleLowerCase('en')];
+                return abbreviation ? `, ${abbreviation}` : match;
+            });
+        }
+
+        function normalizeCitationPublisher(text) {
+            return cleanCitationText(text)
+                .replace(/\s*,?\s+(?:incorporated|inc|ltd|limited|corp|corporation)\.?$/i, '')
+                .replace(/\s*,?\s+(?:co|company)\.?$/i, '')
+                .trim();
+        }
+
+        const US_STATE_ABBREVIATIONS = {
+            alabama: 'AL',
+            alaska: 'AK',
+            arizona: 'AZ',
+            arkansas: 'AR',
+            california: 'CA',
+            colorado: 'CO',
+            connecticut: 'CT',
+            delaware: 'DE',
+            florida: 'FL',
+            georgia: 'GA',
+            hawaii: 'HI',
+            idaho: 'ID',
+            illinois: 'IL',
+            indiana: 'IN',
+            iowa: 'IA',
+            kansas: 'KS',
+            kentucky: 'KY',
+            louisiana: 'LA',
+            maine: 'ME',
+            maryland: 'MD',
+            massachusetts: 'MA',
+            michigan: 'MI',
+            minnesota: 'MN',
+            mississippi: 'MS',
+            missouri: 'MO',
+            montana: 'MT',
+            nebraska: 'NE',
+            nevada: 'NV',
+            'new hampshire': 'NH',
+            'new jersey': 'NJ',
+            'new mexico': 'NM',
+            'new york': 'NY',
+            'north carolina': 'NC',
+            'north dakota': 'ND',
+            ohio: 'OH',
+            oklahoma: 'OK',
+            oregon: 'OR',
+            pennsylvania: 'PA',
+            'rhode island': 'RI',
+            'south carolina': 'SC',
+            'south dakota': 'SD',
+            tennessee: 'TN',
+            texas: 'TX',
+            utah: 'UT',
+            vermont: 'VT',
+            virginia: 'VA',
+            washington: 'WA',
+            'west virginia': 'WV',
+            wisconsin: 'WI',
+            wyoming: 'WY'
+        };
 
         function normalizeFormalContributorRoleReferences(text) {
             return cleanCitationText(text).replace(/,\s*(eds?\.?|comps?\.?|trans\.?)(?=$|[,;)])/gi, (match, role) => {
@@ -2036,12 +2141,20 @@
         }
 
         function formatShortDisplayTitle(title, details = '', sourceText = '') {
-            const titleVolume = extractTrailingVolumeMarker(title);
-            const detailsVolume = findVolumeMarkerInDetails(details);
+            const titleVolumeDetail = extractTitleEmbeddedVolumeDetail(title);
+            const titleForVolume = titleVolumeDetail.title || title;
+            const detailVolumeTitle = titleVolumeDetail.marker
+                ? titleVolumeDetail
+                : extractShortDisplayVolumeTitleDetail(details);
+            const titleVolume = extractTrailingVolumeMarker(titleForVolume);
+            const detailsVolume = detailVolumeTitle.marker || findVolumeMarkerInDetails(details);
             const sourceVolume = findVolumeMarkerInSourceText(sourceText);
             const volumeMarker = titleVolume.marker || detailsVolume || sourceVolume;
-            const baseTitle = titleVolume.title || title;
-            const displayTitle = appendShortDisplayEditionPhrase(formatShortDisplayBilingualTitle(baseTitle), details);
+            const baseTitle = titleVolume.title || titleForVolume;
+            const baseTitleWithVolumeTitle = detailVolumeTitle.volumeTitle
+                ? cleanCitationText(`${baseTitle}: ${detailVolumeTitle.volumeTitle}`)
+                : baseTitle;
+            const displayTitle = appendShortDisplayEditionPhrase(formatShortDisplayBilingualTitle(baseTitleWithVolumeTitle), details);
             const titleText = formatCitationTitle(displayTitle || '');
             return [titleText, volumeMarker].filter(Boolean).join(', ');
         }
@@ -2129,6 +2242,61 @@
                 .find(Boolean) || extractEmbeddedVolumeMarker(details) || normalizeVolumeMarker(details);
         }
 
+        function extractShortDisplayVolumeTitleDetail(details) {
+            const sentences = splitCitationSentences(details);
+            for (const sentence of sentences) {
+                const detail = extractLeadingVolumeTitleDetail(sentence);
+                if (detail.marker) return detail;
+            }
+
+            return extractLeadingVolumeTitleDetail(details);
+        }
+
+        function extractTitleEmbeddedVolumeDetail(title) {
+            const cleaned = trimTerminalPunctuation(cleanCitationText(title));
+            const writtenNumbers = Object.keys(WRITTEN_VOLUME_NUMBERS).join('|');
+            const match = cleaned.match(new RegExp(`^(.*?)\\s*:\\s*vol(?:ume)?\\.?\\s+([0-9]+|[ivxlcdm]+|${writtenNumbers}|[a-z]+[-\\s][a-z]+)\\s*,\\s*(.+)$`, 'i'));
+            if (!match) {
+                return { title: cleaned, marker: '', volumeTitle: '', detail: '' };
+            }
+
+            const marker = normalizeVolumeMarker(`volume ${match[2]}`);
+            const baseTitle = trimTerminalPunctuation(match[1]);
+            const volumeTitle = trimTerminalPunctuation(match[3]);
+            if (!marker || !baseTitle || !volumeTitle) {
+                return { title: cleaned, marker: '', volumeTitle: '', detail: '' };
+            }
+
+            return {
+                title: baseTitle,
+                marker,
+                volumeTitle,
+                detail: `${marker}, ${volumeTitle}`
+            };
+        }
+
+        function extractLeadingVolumeTitleDetail(text) {
+            const cleaned = trimTerminalPunctuation(cleanCitationText(text));
+            const writtenNumbers = Object.keys(WRITTEN_VOLUME_NUMBERS).join('|');
+            const match = cleaned.match(new RegExp(`^vol(?:ume)?\\.?\\s+([0-9]+|[ivxlcdm]+|${writtenNumbers}|[a-z]+[-\\s][a-z]+)\\s*,\\s*(.+)$`, 'i'));
+            if (!match) {
+                return { title: cleaned, marker: '', volumeTitle: '', detail: '' };
+            }
+
+            const marker = normalizeVolumeMarker(`volume ${match[1]}`);
+            const volumeTitle = trimTerminalPunctuation(match[2].replace(/\s*,\s*[^,]*\b(?:series|library|collection)\b.*$/i, ''));
+            if (!marker || !volumeTitle) {
+                return { title: cleaned, marker: '', volumeTitle: '', detail: '' };
+            }
+
+            return {
+                title: '',
+                marker,
+                volumeTitle,
+                detail: `${marker}, ${volumeTitle}`
+            };
+        }
+
         function findVolumeMarkerInSourceText(sourceText) {
             const cleaned = normalizeVolumeSourceText(sourceText);
             if (!cleaned) return '';
@@ -2190,7 +2358,25 @@
                 return number > 0 ? String(number) : '';
             }
 
-            return String(WRITTEN_VOLUME_NUMBERS[cleaned] || '');
+            return String(normalizeGeneralNumber(cleaned) || '');
+        }
+
+        function normalizeGeneralNumber(value) {
+            const cleaned = cleanCitationText(value).toLocaleLowerCase('en').replace(/-/g, ' ');
+            if (/^\d+$/.test(cleaned)) return String(parseInt(cleaned, 10));
+            if (/^[ivxlcdm]+$/i.test(cleaned)) {
+                const roman = romanNumeralToNumber(cleaned);
+                return roman > 0 ? String(roman) : '';
+            }
+            const direct = WRITTEN_VOLUME_NUMBERS[cleaned];
+            if (direct) return String(direct);
+
+            const [tens, unit] = cleaned.split(/\s+/);
+            if (WRITTEN_NUMBER_TENS[tens] && (!unit || WRITTEN_NUMBER_UNITS[unit])) {
+                return String(WRITTEN_NUMBER_TENS[tens] + (WRITTEN_NUMBER_UNITS[unit] || 0));
+            }
+
+            return '';
         }
 
         const WRITTEN_VOLUME_NUMBERS = {
@@ -2214,6 +2400,29 @@
             eighteen: 18,
             nineteen: 19,
             twenty: 20,
+        };
+
+        const WRITTEN_NUMBER_TENS = {
+            twenty: 20,
+            thirty: 30,
+            forty: 40,
+            fifty: 50,
+            sixty: 60,
+            seventy: 70,
+            eighty: 80,
+            ninety: 90
+        };
+
+        const WRITTEN_NUMBER_UNITS = {
+            one: 1,
+            two: 2,
+            three: 3,
+            four: 4,
+            five: 5,
+            six: 6,
+            seven: 7,
+            eight: 8,
+            nine: 9
         };
 
         function romanNumeralToNumber(value) {
@@ -2363,11 +2572,51 @@
                 }
             }
 
-            return {
+            return normalizeParsedBookCitationParts({
                 authorText,
                 titleText,
                 publication: trimTerminalPunctuation(plainCitationText(publication))
+            });
+        }
+
+        function normalizeParsedBookCitationParts(parts) {
+            let authorText = trimAuthorName(cleanCitationText(parts.authorText || ''));
+            let titleText = trimTerminalPunctuation(cleanCitationText(parts.titleText || ''));
+            let publication = trimTerminalPunctuation(cleanCitationText(parts.publication || ''));
+
+            const titleVolume = extractTitleEmbeddedVolumeDetail(titleText);
+            if (titleVolume.marker) {
+                titleText = titleVolume.title;
+                publication = joinCitationSentences([titleVolume.detail, publication].filter(Boolean));
+            }
+
+            const authorRole = extractSharedCreatorRole(authorText);
+            if (authorRole.names && !authorRole.role && hasStandaloneTranslatorRoleDetail(publication)) {
+                authorText = cleanCitationText(`${authorText}, trans.`);
+                publication = removeStandaloneTranslatorRoleDetails(publication);
+            }
+
+            return {
+                authorText,
+                titleText,
+                publication
             };
+        }
+
+        function hasStandaloneTranslatorRoleDetail(publication) {
+            return splitCitationSentences(publication).some(sentence => isStandaloneTranslatorRoleDetail(sentence));
+        }
+
+        function removeStandaloneTranslatorRoleDetails(publication) {
+            return joinCitationSentences(
+                splitCitationSentences(publication).filter(sentence => !isStandaloneTranslatorRoleDetail(sentence))
+            );
+        }
+
+        function isStandaloneTranslatorRoleDetail(text) {
+            const cleaned = trimTerminalPunctuation(cleanCitationText(text));
+            if (!cleaned || /\b(?:by|par)\b/i.test(cleaned)) return false;
+            return /^(?:translated|translation)(?:\s*,?\s*(?:and|with|and\s+with)\b.*)?$/i.test(cleaned);
         }
 
         function parseTitleFirstResponsibilityCitation(firstSentence, remainingSentences) {
