@@ -757,7 +757,7 @@
             if (existingCitation && !isExistingAutoFill) {
                 const citation = normalizeBibliographyCitation(existingCitation);
                 citationInput.value = citation;
-                fillDerivedCitationFields(citation);
+                fillDerivedCitationFields(citation, sourceKey);
                 showCitationNote('');
                 return citation;
             }
@@ -776,7 +776,7 @@
                     const citation = normalizeAutoFilledCitation(suggestion, workerSuggestion.source);
                     citationInput.value = citation;
                     markCitationAutoFilled(citation, sourceKey);
-                    fillDerivedCitationFields(citation);
+                    fillDerivedCitationFields(citation, sourceKey);
                     showCitationNote('Citation filled from PDF. Please review it in the generated preview.', 'success');
                     return citation;
                 }
@@ -1866,10 +1866,12 @@
             return normalizeFormalBookPublication(cleaned);
         }
 
-        function fillDerivedCitationFields(bibliography) {
+        function fillDerivedCitationFields(bibliography, sourceText = '') {
             const footnoteInput = document.getElementById('footnoteCitation');
             const shortInput = document.getElementById('shortCitation');
-            const variants = buildCitationVariantsFromBibliography(bibliography);
+            const variants = buildCitationVariantsFromBibliography(bibliography, {
+                sourceText: sourceText || document.getElementById('dropboxUrl')?.value || ''
+            });
 
             if (!footnoteInput.value.trim() && variants.footnote) {
                 footnoteInput.value = variants.footnote;
@@ -1880,7 +1882,7 @@
             }
         }
 
-        function buildCitationVariantsFromBibliography(bibliography) {
+        function buildCitationVariantsFromBibliography(bibliography, options = {}) {
             if (bibliography === FALLBACK_CITATION) {
                 return { footnote: FALLBACK_CITATION, short: FALLBACK_CITATION };
             }
@@ -1908,7 +1910,7 @@
                 titleAndImprint
             ].filter(Boolean).join(', ') + '.';
             const shortAuthors = resolveShortDisplayCreators(parts.authorText, parts.titleText, shortPublication.details);
-            const shortTitle = formatShortDisplayTitle(parts.titleText || '', shortPublication.details);
+            const shortTitle = formatShortDisplayTitle(parts.titleText || '', shortPublication.details, options.sourceText || '');
             const short = [shortAuthors, shortTitle].filter(Boolean).join('. ');
 
             return {
@@ -2033,10 +2035,11 @@
             }, '');
         }
 
-        function formatShortDisplayTitle(title, details = '') {
+        function formatShortDisplayTitle(title, details = '', sourceText = '') {
             const titleVolume = extractTrailingVolumeMarker(title);
             const detailsVolume = findVolumeMarkerInDetails(details);
-            const volumeMarker = titleVolume.marker || detailsVolume;
+            const sourceVolume = findVolumeMarkerInSourceText(sourceText);
+            const volumeMarker = titleVolume.marker || detailsVolume || sourceVolume;
             const baseTitle = titleVolume.title || title;
             const displayTitle = appendShortDisplayEditionPhrase(formatShortDisplayBilingualTitle(baseTitle), details);
             const titleText = formatCitationTitle(displayTitle || '');
@@ -2124,6 +2127,37 @@
             return splitCitationSentences(details)
                 .map(sentence => normalizeVolumeMarker(sentence))
                 .find(Boolean) || extractEmbeddedVolumeMarker(details) || normalizeVolumeMarker(details);
+        }
+
+        function findVolumeMarkerInSourceText(sourceText) {
+            const cleaned = normalizeVolumeSourceText(sourceText);
+            if (!cleaned) return '';
+
+            const writtenNumbers = Object.keys(WRITTEN_VOLUME_NUMBERS).join('|');
+            const match = cleaned.match(new RegExp(`\\bvol(?:ume)?\\s+([0-9]+|[ivxlcdm]+|${writtenNumbers})\\b`, 'i'));
+            return match ? normalizeVolumeMarker(`volume ${match[1]}`) : '';
+        }
+
+        function normalizeVolumeSourceText(sourceText) {
+            const source = String(sourceText || '');
+            let filename = source;
+            try {
+                const url = new URL(source);
+                filename = url.pathname.split('/').filter(Boolean).pop() || source;
+            } catch {
+                filename = source;
+            }
+
+            try {
+                filename = decodeURIComponent(filename);
+            } catch {
+                // Keep the original source text if it is not valid URI encoding.
+            }
+
+            return cleanCitationText(filename)
+                .replace(/[._-]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
         }
 
         function extractEmbeddedVolumeMarker(text) {
@@ -2314,7 +2348,12 @@
             } else {
                 const pieces = splitCitationSentences(source);
                 const first = trimTerminalPunctuation(pieces.shift() || '');
-                if (shouldParseAsTitleFirstCitation(first, pieces)) {
+                const titleFirstResponsibility = parseTitleFirstResponsibilityCitation(first, pieces);
+                if (titleFirstResponsibility) {
+                    authorText = titleFirstResponsibility.authorText;
+                    titleText = titleFirstResponsibility.titleText;
+                    publication = titleFirstResponsibility.publication;
+                } else if (shouldParseAsTitleFirstCitation(first, pieces)) {
                     titleText = first;
                     publication = pieces.join('. ');
                 } else {
@@ -2328,6 +2367,33 @@
                 authorText,
                 titleText,
                 publication: trimTerminalPunctuation(plainCitationText(publication))
+            };
+        }
+
+        function parseTitleFirstResponsibilityCitation(firstSentence, remainingSentences) {
+            const title = trimTerminalPunctuation(cleanCitationText(firstSentence));
+            if (!title || remainingSentences.length === 0) return null;
+            if (looksLikeResponsibilityRoleLine(title) || looksLikeCorporateAuthor(title)) return null;
+            if (!containsNonLatinScript(title) && looksLikePersonalName(title)) return null;
+
+            const responsibility = trimTerminalPunctuation(cleanCitationText(remainingSentences[0] || ''));
+            const contributor = extractTranslatorResponsibilityContributor(responsibility);
+            if (!contributor) return null;
+
+            const publicationSentences = remainingSentences.slice(1);
+            const publication = publicationSentences.join('. ');
+            const hasPublicationEvidence = publicationSentences.some(sentence => (
+                looksLikePublicationImprint(sentence) ||
+                Boolean(findVolumeMarkerInDetails(sentence)) ||
+                /\b(eds?\.?|edited\s+by|comps?\.?|compiled\s+by)\b/i.test(sentence)
+            )) || looksLikePublicationImprint(publication);
+
+            if (!hasPublicationEvidence) return null;
+
+            return {
+                authorText: cleanCitationText(`${contributor}, trans.`),
+                titleText: title,
+                publication
             };
         }
 
