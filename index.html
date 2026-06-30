@@ -1918,10 +1918,20 @@
         function appendShortDisplayEditionPhrase(title, details) {
             const cleanedTitle = trimTerminalPunctuation(cleanCitationText(title));
             if (!cleanedTitle) return '';
-            if (!looksLikeZoharShortTitle(cleanedTitle)) return cleanedTitle;
-            if (/\bpritzker\s+edition\b/i.test(cleanedTitle)) return cleanedTitle;
-            if (!/\bpritzker\s+edition\b/i.test(details || '')) return cleanedTitle;
-            return cleanCitationText(`${cleanedTitle}: Pritzker Edition`);
+            const zoharTitle = formatCanonicalZoharShortTitle(cleanedTitle, details);
+            if (zoharTitle) return zoharTitle;
+            return cleanedTitle;
+        }
+
+        function formatCanonicalZoharShortTitle(title, details = '') {
+            const cleanedTitle = trimTerminalPunctuation(cleanCitationText(title));
+            if (!looksLikeZoharShortTitle(cleanedTitle)) return '';
+
+            const hasPritzkerEdition = /\bpritzker\s+edition\b/i.test(`${cleanedTitle} ${details || ''}`);
+            const baseTitle = 'The Zohar (ספר הזהר)';
+            return hasPritzkerEdition
+                ? `${baseTitle}, Pritzker Edition`
+                : baseTitle;
         }
 
         function extractTrailingVolumeMarker(text) {
