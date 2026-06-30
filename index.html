@@ -1794,9 +1794,11 @@
             const parts = parseBibliographyCitation(plainBibliography);
             if (!parts.titleText) return plainBibliography;
 
-            const authorPart = parts.authorText ? formatCmsBibliographyAuthors(parts.authorText) : '';
+            const formalAuthorText = resolveFormalCreatorText(parts.authorText, parts.publication);
+            const formalPublication = removeDuplicateFormalTranslatorResponsibility(parts.publication, parts.authorText, formalAuthorText);
+            const authorPart = formalAuthorText ? formatCmsBibliographyAuthors(formalAuthorText) : '';
             const titlePart = formatFormalCitationTitle(parts.titleText) + '.';
-            const normalizedPublication = parts.publication ? normalizeBibliographyPublication(parts.publication) : '';
+            const normalizedPublication = formalPublication ? normalizeBibliographyPublication(formalPublication) : '';
             const publicationPart = normalizedPublication ? punctuateCitation(normalizedPublication) : '';
 
             return cleanCitationText([authorPart, titlePart, publicationPart].filter(Boolean).join(' '));
@@ -1847,9 +1849,12 @@
                 return { footnote: plainBibliography, short: plainBibliography };
             }
 
-            const footnoteAuthors = bibliographyAuthorsToFootnote(parts.authorText);
+            const formalAuthorText = resolveFormalCreatorText(parts.authorText, parts.publication);
+            const formalPublication = removeDuplicateFormalTranslatorResponsibility(parts.publication, parts.authorText, formalAuthorText);
+            const footnoteAuthors = bibliographyAuthorsToFootnote(formalAuthorText);
             const titleText = formatFormalCitationTitle(parts.titleText || '');
-            const footnotePublication = splitFootnotePublicationDetails(parts.publication);
+            const footnotePublication = splitFootnotePublicationDetails(formalPublication);
+            const shortPublication = splitFootnotePublicationDetails(parts.publication);
             const footnoteDetails = normalizeFootnoteBookDetails(footnotePublication.details);
             const titleAndDetails = [
                 titleText,
@@ -1860,8 +1865,8 @@
                 footnoteAuthors,
                 titleAndImprint
             ].filter(Boolean).join(', ') + '.';
-            const shortAuthors = resolveShortDisplayCreators(parts.authorText, parts.titleText, footnotePublication.details);
-            const shortTitle = formatShortDisplayTitle(parts.titleText || '', footnotePublication.details);
+            const shortAuthors = resolveShortDisplayCreators(parts.authorText, parts.titleText, shortPublication.details);
+            const shortTitle = formatShortDisplayTitle(parts.titleText || '', shortPublication.details);
             const short = [shortAuthors, shortTitle].filter(Boolean).join('. ');
 
             return {
@@ -1874,6 +1879,46 @@
             const titleVolume = extractTrailingVolumeMarker(title);
             const baseTitle = formatCitationTitle(titleVolume.title || title);
             return [baseTitle, titleVolume.marker].filter(Boolean).join(', ');
+        }
+
+        function resolveFormalCreatorText(authorText, publication = '') {
+            const role = extractSharedCreatorRole(authorText);
+            if (!role.names || role.role) return authorText;
+
+            const translator = extractTranslatorResponsibilityContributor(publication);
+            if (translator && normalizeShortCreatorComparison(role.names) === normalizeShortCreatorComparison(translator)) {
+                return cleanCitationText(`${trimAuthorName(cleanAuthorLine(authorText))}, trans.`);
+            }
+
+            return authorText;
+        }
+
+        function removeDuplicateFormalTranslatorResponsibility(publication, authorText, formalAuthorText) {
+            if (!publication || extractCreatorRoleSuffix(formalAuthorText).role !== 'trans.') {
+                return publication;
+            }
+
+            const formalNames = extractCreatorRoleSuffix(formalAuthorText).name;
+            if (!formalNames || normalizeShortCreatorComparison(authorText) !== normalizeShortCreatorComparison(formalNames)) {
+                return publication;
+            }
+
+            const sentences = splitCitationSentences(publication)
+                .map(sentence => removeMatchingTranslatorResponsibilityClause(sentence, formalNames))
+                .filter(Boolean);
+
+            return sentences.length ? joinCitationSentences(sentences) : '';
+        }
+
+        function removeMatchingTranslatorResponsibilityClause(sentence, formalNames) {
+            const contributor = extractTranslatorResponsibilityContributor(sentence);
+            if (!contributor || normalizeShortCreatorComparison(contributor) !== normalizeShortCreatorComparison(formalNames)) {
+                return sentence;
+            }
+
+            const clauses = cleanCitationText(sentence).split(/\s*;\s*/).map(clause => cleanCitationText(clause)).filter(Boolean);
+            if (clauses.length <= 1) return '';
+            return clauses.slice(1).join('; ');
         }
 
         function normalizeFormalBookPublication(publication) {
