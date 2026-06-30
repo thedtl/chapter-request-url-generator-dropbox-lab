@@ -1853,7 +1853,8 @@
                 footnoteAuthors,
                 titleAndImprint
             ].filter(Boolean).join(', ') + '.';
-            const shortAuthors = formatShortDisplayCreators(parts.authorText);
+            const shortCreatorRole = inferShortDisplayCreatorRole(parts.authorText, parts.titleText, footnotePublication.details);
+            const shortAuthors = formatShortDisplayCreators(parts.authorText, shortCreatorRole);
             const shortTitle = formatShortDisplayTitle(parts.titleText || '', footnotePublication.details);
             const short = [shortAuthors, shortTitle].filter(Boolean).join('. ');
 
@@ -1868,8 +1869,35 @@
             const detailsVolume = findVolumeMarkerInDetails(details);
             const volumeMarker = titleVolume.marker || detailsVolume;
             const baseTitle = titleVolume.title || title;
-            const titleText = formatCitationTitle(baseTitle || '');
+            const displayTitle = appendShortDisplayEditionPhrase(preferShortDisplayEnglishTitle(baseTitle), details);
+            const titleText = formatCitationTitle(displayTitle || '');
             return [titleText, volumeMarker].filter(Boolean).join(', ');
+        }
+
+        function preferShortDisplayEnglishTitle(title) {
+            const cleaned = trimTerminalPunctuation(cleanCitationText(title));
+            if (!cleaned) return '';
+
+            const originalWithEnglish = cleaned.match(/^(.+?[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}].*?)\s*\[([^\[\]]+)\](.*)$/u);
+            if (originalWithEnglish && !containsNonLatinScript(originalWithEnglish[2])) {
+                return cleanCitationText(`${originalWithEnglish[2]}${originalWithEnglish[3] || ''}`);
+            }
+
+            const englishWithOriginal = cleaned.match(/^(.*?)\s*\[([^\[\]]*[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}][^\[\]]*)\](.*)$/u);
+            if (englishWithOriginal && !containsNonLatinScript(englishWithOriginal[1])) {
+                return cleanCitationText(`${englishWithOriginal[1]}${englishWithOriginal[3] || ''}`);
+            }
+
+            return cleaned;
+        }
+
+        function appendShortDisplayEditionPhrase(title, details) {
+            const cleanedTitle = trimTerminalPunctuation(cleanCitationText(title));
+            if (!cleanedTitle) return '';
+            if (!looksLikeZoharShortTitle(cleanedTitle)) return cleanedTitle;
+            if (/\bpritzker\s+edition\b/i.test(cleanedTitle)) return cleanedTitle;
+            if (!/\bpritzker\s+edition\b/i.test(details || '')) return cleanedTitle;
+            return cleanCitationText(`${cleanedTitle}: Pritzker Edition`);
         }
 
         function extractTrailingVolumeMarker(text) {
@@ -1953,12 +1981,53 @@
             }, 0);
         }
 
-        function formatShortDisplayCreators(authorText) {
+        function inferShortDisplayCreatorRole(authorText, titleText, details) {
             const role = extractSharedCreatorRole(authorText);
-            const formatted = role.role
+            if (!role.names || role.role) return '';
+            if (translatorResponsibilityMatchesCreators(role.names, details)) return 'trans.';
+            if (looksLikeZoharShortTitle(preferShortDisplayEnglishTitle(titleText))) return 'trans.';
+            return '';
+        }
+
+        function translatorResponsibilityMatchesCreators(authorText, details) {
+            const statement = findResponsibilityStatement(details);
+            if (!statement || !/\b(translated|translation|traduction|traduit)\b/i.test(statement)) {
+                return false;
+            }
+
+            const contributor = extractPrimaryResponsibilityContributor(statement);
+            if (!contributor) return false;
+
+            return normalizeShortCreatorComparison(authorText) === normalizeShortCreatorComparison(contributor);
+        }
+
+        function extractPrimaryResponsibilityContributor(statement) {
+            const match = cleanCitationText(statement).match(/\b(?:by|par)\b\s+(.+)$/i);
+            if (!match) return '';
+
+            const primaryContributor = match[1].split(/\s*;\s*/)[0];
+            const contributor = normalizeContributorName(primaryContributor);
+            return looksLikeContributorName(contributor) ? contributor : '';
+        }
+
+        function normalizeShortCreatorComparison(text) {
+            return formatChicagoAuthors(text)
+                .toLocaleLowerCase('en')
+                .replace(/[^\p{L}\p{N}]+/gu, ' ')
+                .trim();
+        }
+
+        function looksLikeZoharShortTitle(title) {
+            return /^the\s+zohar\b/i.test(cleanCitationText(title));
+        }
+
+        function formatShortDisplayCreators(authorText, fallbackRole = '') {
+            const role = extractSharedCreatorRole(authorText);
+            const roleToken = role.role || normalizeCreatorRoleToken(fallbackRole);
+            const formatted = roleToken
                 ? trimAuthorListForRole(formatChicagoAuthors(role.names))
                 : trimTerminalPunctuation(formatChicagoAuthors(role.names));
-            return trimTerminalPunctuation(cleanCitationText([formatted, role.role].filter(Boolean).join(', ')));
+            return trimTerminalPunctuation(cleanCitationText([formatted, roleToken].filter(Boolean).join(', ')));
         }
 
         function extractSharedCreatorRole(authorText) {
@@ -1987,6 +2056,7 @@
             if (cleaned === 'ed') return 'ed.';
             if (cleaned === 'comps') return 'comps.';
             if (cleaned === 'comp') return 'comp.';
+            if (cleaned === 'trans') return 'trans.';
             return '';
         }
 
