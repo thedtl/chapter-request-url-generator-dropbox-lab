@@ -1853,13 +1853,141 @@
                 footnoteAuthors,
                 titleAndImprint
             ].filter(Boolean).join(', ') + '.';
-            const shortAuthors = trimTerminalPunctuation(formatChicagoAuthors(parts.authorText));
-            const short = [shortAuthors, titleText].filter(Boolean).join('. ');
+            const shortAuthors = formatShortDisplayCreators(parts.authorText);
+            const shortTitle = formatShortDisplayTitle(parts.titleText || '', footnotePublication.details);
+            const short = [shortAuthors, shortTitle].filter(Boolean).join('. ');
 
             return {
                 footnote: cleanCitationText(footnote),
                 short: cleanCitationText(short)
             };
+        }
+
+        function formatShortDisplayTitle(title, details = '') {
+            const titleVolume = extractTrailingVolumeMarker(title);
+            const detailsVolume = findVolumeMarkerInDetails(details);
+            const volumeMarker = titleVolume.marker || detailsVolume;
+            const baseTitle = titleVolume.title || title;
+            const titleText = formatCitationTitle(baseTitle || '');
+            return [titleText, volumeMarker].filter(Boolean).join(', ');
+        }
+
+        function extractTrailingVolumeMarker(text) {
+            const cleaned = trimTerminalPunctuation(cleanCitationText(text));
+            const match = cleaned.match(/^(.*?)\s*(?:[,;:]?\s+|[,;:]\s*)(vol(?:ume)?\.?)\s+([0-9]+|[ivxlcdm]+|[a-z]+(?:[-\s][a-z]+)?)$/i);
+            if (!match) {
+                return { title: cleaned, marker: '' };
+            }
+
+            const title = trimTerminalPunctuation(match[1]);
+            if (!title) {
+                return { title: cleaned, marker: '' };
+            }
+
+            const marker = normalizeVolumeMarker(`${match[2]} ${match[3]}`);
+            return marker ? { title, marker } : { title: cleaned, marker: '' };
+        }
+
+        function findVolumeMarkerInDetails(details) {
+            return splitCitationSentences(details)
+                .map(sentence => normalizeVolumeMarker(sentence))
+                .find(Boolean) || normalizeVolumeMarker(details);
+        }
+
+        function normalizeVolumeMarker(text) {
+            const cleaned = trimTerminalPunctuation(cleanCitationText(text));
+            const match = cleaned.match(/^vol(?:ume)?\.?\s+([0-9]+|[ivxlcdm]+|[a-z]+(?:[-\s][a-z]+)?)$/i);
+            if (!match) return '';
+
+            const number = normalizeVolumeNumber(match[1]);
+            return number ? `vol. ${number}` : '';
+        }
+
+        function normalizeVolumeNumber(value) {
+            const cleaned = cleanCitationText(value).toLocaleLowerCase('en').replace(/-/g, ' ');
+            if (/^\d+$/.test(cleaned)) {
+                const number = parseInt(cleaned, 10);
+                return number > 0 ? String(number) : '';
+            }
+
+            if (/^[ivxlcdm]+$/i.test(cleaned)) {
+                const number = romanNumeralToNumber(cleaned);
+                return number > 0 ? String(number) : '';
+            }
+
+            return String(WRITTEN_VOLUME_NUMBERS[cleaned] || '');
+        }
+
+        const WRITTEN_VOLUME_NUMBERS = {
+            one: 1,
+            two: 2,
+            three: 3,
+            four: 4,
+            five: 5,
+            six: 6,
+            seven: 7,
+            eight: 8,
+            nine: 9,
+            ten: 10,
+            eleven: 11,
+            twelve: 12,
+            thirteen: 13,
+            fourteen: 14,
+            fifteen: 15,
+            sixteen: 16,
+            seventeen: 17,
+            eighteen: 18,
+            nineteen: 19,
+            twenty: 20,
+        };
+
+        function romanNumeralToNumber(value) {
+            const numerals = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+            const chars = String(value || '').toLocaleLowerCase('en').split('');
+            if (chars.some(char => !numerals[char])) return 0;
+
+            return chars.reduce((total, char, index) => {
+                const current = numerals[char];
+                const next = numerals[chars[index + 1]] || 0;
+                return total + (current < next ? -current : current);
+            }, 0);
+        }
+
+        function formatShortDisplayCreators(authorText) {
+            const role = extractSharedCreatorRole(authorText);
+            const formatted = role.role
+                ? trimAuthorListForRole(formatChicagoAuthors(role.names))
+                : trimTerminalPunctuation(formatChicagoAuthors(role.names));
+            return trimTerminalPunctuation(cleanCitationText([formatted, role.role].filter(Boolean).join(', ')));
+        }
+
+        function extractSharedCreatorRole(authorText) {
+            const cleaned = trimTerminalPunctuation(cleanAuthorLine(authorText));
+            const match = cleaned.match(/^(.*?)\s*,?\s+(eds?\.?|comps?\.?)$/i);
+            if (!match) {
+                return { names: cleaned, role: '' };
+            }
+
+            return {
+                names: cleanCitationText(match[1]).replace(/,+$/g, '').trim(),
+                role: normalizeCreatorRoleToken(match[2])
+            };
+        }
+
+        function trimAuthorListForRole(text) {
+            const cleaned = cleanCitationText(text);
+            return /\b[A-Z]\.$/.test(cleaned)
+                ? cleaned
+                : trimTerminalPunctuation(cleaned);
+        }
+
+        function normalizeCreatorRoleToken(text) {
+            const cleaned = cleanFrontMatterLine(text).toLocaleLowerCase('en').replace(/\.$/, '');
+            if (cleaned === 'eds') return 'eds.';
+            if (cleaned === 'ed') return 'ed.';
+            if (cleaned === 'comps') return 'comps.';
+            if (cleaned === 'comp') return 'comp.';
+            return '';
         }
 
         function parseBibliographyCitation(bibliography) {
