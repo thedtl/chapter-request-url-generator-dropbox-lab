@@ -1878,6 +1878,9 @@
             const cleaned = trimTerminalPunctuation(cleanCitationText(title));
             if (!cleaned) return '';
 
+            const slashTitle = preferSlashSeparatedEnglishTitle(cleaned);
+            if (slashTitle !== cleaned) return slashTitle;
+
             const originalWithEnglish = cleaned.match(/^(.+?[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}].*?)\s*\[([^\[\]]+)\](.*)$/u);
             if (originalWithEnglish && !containsNonLatinScript(originalWithEnglish[2])) {
                 return cleanCitationText(`${originalWithEnglish[2]}${originalWithEnglish[3] || ''}`);
@@ -1889,6 +1892,25 @@
             }
 
             return cleaned;
+        }
+
+        function preferSlashSeparatedEnglishTitle(title) {
+            const match = cleanCitationText(title).match(/^([^:;,]+?)\s*\/\s*([^:;,]+)(.*)$/u);
+            if (!match) return title;
+
+            const first = trimTerminalPunctuation(match[1]);
+            const second = trimTerminalPunctuation(match[2]);
+            const suffix = match[3] || '';
+
+            if (first && second && !containsNonLatinScript(first) && containsNonLatinScript(second)) {
+                return cleanCitationText(`${first}${suffix}`);
+            }
+
+            if (first && second && containsNonLatinScript(first) && !containsNonLatinScript(second)) {
+                return cleanCitationText(`${second}${suffix}`);
+            }
+
+            return title;
         }
 
         function appendShortDisplayEditionPhrase(title, details) {
@@ -1919,7 +1941,16 @@
         function findVolumeMarkerInDetails(details) {
             return splitCitationSentences(details)
                 .map(sentence => normalizeVolumeMarker(sentence))
-                .find(Boolean) || normalizeVolumeMarker(details);
+                .find(Boolean) || extractEmbeddedVolumeMarker(details) || normalizeVolumeMarker(details);
+        }
+
+        function extractEmbeddedVolumeMarker(text) {
+            const cleaned = trimTerminalPunctuation(cleanCitationText(text));
+            const matches = [...cleaned.matchAll(/(?:^|[,.;:]\s*)(vol(?:ume)?\.?)\s+([0-9]+|[ivxlcdm]+|[a-z]+(?:[-\s][a-z]+)?)(?=$|[,.;:])/gi)];
+            const marker = matches
+                .map(match => normalizeVolumeMarker(`${match[1]} ${match[2]}`))
+                .find(Boolean);
+            return marker || '';
         }
 
         function normalizeVolumeMarker(text) {
@@ -2005,7 +2036,9 @@
             const match = cleanCitationText(statement).match(/\b(?:by|par)\b\s+(.+)$/i);
             if (!match) return '';
 
-            const primaryContributor = match[1].split(/\s*;\s*/)[0];
+            const primaryContributor = match[1]
+                .split(/\s*;\s*/)[0]
+                .replace(/\s*,\s*vol(?:ume)?\.?\s+(?:[0-9]+|[ivxlcdm]+|[a-z]+(?:[-\s][a-z]+)?)$/i, '');
             const contributor = normalizeContributorName(primaryContributor);
             return looksLikeContributorName(contributor) ? contributor : '';
         }
