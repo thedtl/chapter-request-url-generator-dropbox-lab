@@ -1641,8 +1641,49 @@
         }
 
         function normalizeCompoundCreatorRoleText(text) {
-            return cleanCitationText(text)
+            return normalizeSpelledOutCreatorRoleText(cleanCitationText(text))
                 .replace(/\btrans\.?\s+(?:and|&)\s+comm\.?(?=\s|[,.;:]|$)/gi, 'trans.');
+        }
+
+        function normalizeSpelledOutCreatorRoleText(text) {
+            const cleaned = cleanCitationText(text);
+            const firstSentence = splitFirstCitationSentence(cleaned);
+            if (!firstSentence.first) return cleaned;
+
+            const normalizedFirst = normalizeSpelledOutCreatorRoleSuffix(firstSentence.first);
+            if (normalizedFirst === firstSentence.first) return cleaned;
+
+            return cleanCitationText([
+                normalizedFirst + '.',
+                firstSentence.rest
+            ].filter(Boolean).join(' '));
+        }
+
+        function splitFirstCitationSentence(text) {
+            const source = cleanCitationText(text);
+            for (let index = 0; index < source.length; index++) {
+                if (source[index] !== '.' || !/\s/.test(source[index + 1] || '')) continue;
+
+                const sentence = source.slice(0, index + 1).trim();
+                if (isNonterminalCitationAbbreviation(sentence)) continue;
+
+                return {
+                    first: trimTerminalPunctuation(sentence),
+                    rest: source.slice(index + 1).trim()
+                };
+            }
+
+            return {
+                first: trimTerminalPunctuation(source),
+                rest: ''
+            };
+        }
+
+        function normalizeSpelledOutCreatorRoleSuffix(text) {
+            const cleaned = trimTerminalPunctuation(cleanCitationText(text));
+            const rolePhrase = '(?:translators?|commentators?)(?:\\s*,?\\s*(?:and|&)\\s*(?:translators?|commentators?))?';
+            const rolePattern = new RegExp(`,\\s*(${rolePhrase})$`, 'iu');
+            return cleaned.replace(rolePattern, ', trans');
         }
 
         function formatResponsibilityRoles(lines) {
