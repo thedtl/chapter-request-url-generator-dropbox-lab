@@ -667,6 +667,7 @@
         const NAME_CREDENTIAL_PATTERN = String.raw`(?:o\.?\s*f\.?\s*m\.?(?:\s*cap\.?)?|ofm\s*cap\.?|ofmcap|ofin\s*cap\.?|ofincap|s\.?\s*j\.?|o\.?\s*p\.?|o\.?\s*s\.?\s*b\.?|o\.?\s*c\.?\s*s\.?\s*o\.?|c\.?\s*s\.?\s*r\.?|s\.?\s*d\.?\s*b\.?|c\.?\s*s\.?\s*c\.?|ph\.?\s*d\.?|d\.?\s*phil\.?|m\.?\s*div\.?|th\.?\s*d\.?|d\.?\s*min\.?|ed\.?\s*d\.?|psy\.?\s*d\.?|s\.?\s*t\.?\s*d\.?|s\.?\s*t\.?\s*l\.?|j\.?\s*c\.?\s*d\.?|j\.?\s*d\.?|m\.?\s*d\.?|d\.?\s*d\.?|m\.?\s*s\.?\s*w\.?|l\.?\s*c\.?\s*s\.?\s*w\.?|l\.?\s*m\.?\s*s\.?\s*w\.?|m\.?\s*b\.?\s*a\.?|r\.?\s*n\.?|m\.\s*a\.|b\.\s*a\.|m\.\s*s\.|b\.\s*s\.)`;
         const COMMA_NAME_CREDENTIAL_PATTERN = String.raw`(?:${NAME_CREDENTIAL_PATTERN}|m\s*a|b\s*a|m\s*s|b\s*s)`;
         const SURNAME_PARTICLE_PATTERN = /^(?:da|de|del|den|der|di|du|el|la|le|ten|ter|van|von)$/i;
+        const TITLE_LOWERCASE_WORD_PATTERN = /^(?:a|an|and|as|at|but|by|de|del|des|du|el|en|et|for|from|in|la|le|les|nor|of|on|or|para|par|por|the|to|un|une|with|y)$/i;
 
         document.addEventListener('DOMContentLoaded', () => {
             const savedPassword = sessionStorage.getItem('dtl_staff_password');
@@ -1360,7 +1361,7 @@
             ));
             if (window.length === 0) return '';
 
-            const seriesLine = window.find(line => /\bseries\b|sources?\s+chr[ée]tiennes?/i.test(line.text));
+            const seriesLine = window.find(line => /\bcollection\b|\bseries\b|sources?\s+chr[ée]tiennes?/i.test(line.text));
             const numberLine = window.find(line => /^(volume|vol\.?|n[°o]|no\.?)\b/i.test(cleanFrontMatterLine(line.text)));
 
             if (seriesLine && numberLine && seriesLine !== numberLine) {
@@ -1387,7 +1388,7 @@
                 .replace(/^vol\.?\s+/i, 'volume ');
             return /^volume\b/i.test(cleaned) || /^\d+$/.test(cleaned)
                 ? cleaned.toLocaleLowerCase('en')
-                : formatCitationTitle(cleaned);
+                : normalizeFormalSeriesDetail(cleaned);
         }
 
         function choosePublicationStatement(candidates) {
@@ -1566,8 +1567,8 @@
 
         function looksLikeSeriesLine(text) {
             const cleaned = cleanFrontMatterLine(text);
-            return /^(sources?\s+chr[ée]tiennes?|n[°o]\s*\d+|series|volume|vol\.?)\b/i.test(cleaned) ||
-                /\bseries\b/i.test(cleaned);
+            return /^(collection|sources?\s+chr[ée]tiennes?|n[°o]\s*\d+|series|volume|vol\.?)\b/i.test(cleaned) ||
+                /\b(collection|series)\b/i.test(cleaned);
         }
 
         function looksLikeEditionLine(text) {
@@ -1595,13 +1596,13 @@
 
         function looksLikeDirectResponsibilityLine(text) {
             const cleaned = cleanFrontMatterLine(text);
-            return /\b(translated|translation|edited|editor|introduction|introduced|bibliography|bibliographie|notes?|commentary|latin text|texte latin|traduction|traduit|preface|préface|foreword|annotated|annotations?)\b/i.test(cleaned) &&
+            return /\b(adaptation|adapted|translated|translation|edited|editor|introduction|introduced|bibliography|bibliographie|notes?|commentary|latin text|texte latin|traduction|traduit|preface|préface|foreword|annotated|annotations?)\b/i.test(cleaned) &&
                 /\b(by|par)\b/i.test(cleaned);
         }
 
         function looksLikeResponsibilityRoleLine(text) {
             const cleaned = cleanFrontMatterLine(text);
-            return /\b(translated|translation|edited|editor|introduction|introduced|bibliography|bibliographie|notes?|commentary|latin text|texte latin|traduction|traduit|preface|préface|foreword|annotated|annotations?)\b/i.test(cleaned);
+            return /\b(adaptation|adapted|translated|translation|edited|editor|introduction|introduced|bibliography|bibliographie|notes?|commentary|latin text|texte latin|traduction|traduit|preface|préface|foreword|annotated|annotations?)\b/i.test(cleaned);
         }
 
         function normalizeResponsibilityStatement(text) {
@@ -1699,7 +1700,8 @@
                     word.length > 1 && word === word.toLocaleUpperCase('fr')
                         ? word.charAt(0).toLocaleUpperCase('fr') + word.slice(1).toLocaleLowerCase('fr')
                         : word
-                ));
+                ))
+                .replace(/\b(And|Et|Y)\b/g, connector => connector.toLocaleLowerCase('fr'));
         }
 
         function normalizeLeadingInvertedInitialAuthorHeading(text) {
@@ -2002,10 +2004,15 @@
                 return normalizeFormalPublicationImprint(cleaned);
             }
 
+            if (looksLikeDirectResponsibilityLine(cleaned)) {
+                cleaned = normalizeResponsibilityStatement(cleaned);
+            }
+
             cleaned = normalizeFormalEditionDetail(cleaned);
             cleaned = normalizeFormalVolumeDetail(cleaned, style);
             cleaned = normalizeFormalSeriesDetail(cleaned);
             cleaned = normalizeFormalContributorRoleReferences(cleaned);
+            cleaned = normalizeFormalDetailCapitalization(cleaned);
             return cleanCitationText(cleaned);
         }
 
@@ -2044,12 +2051,41 @@
         }
 
         function normalizeFormalSeriesDetail(text) {
-            const cleaned = cleanCitationText(text);
+            const cleaned = normalizeSeriesTitleCapitalization(cleanCitationText(text));
             const match = cleaned.match(/^(.+?\b(?:series|library|collection)\b)\s*,?\s*(?:no\.?|number)\s+([0-9]+|[ivxlcdm]+|[a-z]+(?:[-\s][a-z]+)?)$/i);
             if (!match) return cleaned;
 
             const number = normalizeGeneralNumber(match[2]);
             return number ? cleanCitationText(`${match[1]} ${number}`) : cleaned;
+        }
+
+        function normalizeFormalDetailCapitalization(text) {
+            const cleaned = cleanCitationText(text);
+            if (!cleaned || !isMostlyAllCaps(cleaned)) return cleaned;
+            if (looksLikeSeriesLine(cleaned)) return normalizeSeriesTitleCapitalization(cleaned);
+            return sentenceCaseText(cleaned);
+        }
+
+        function normalizeSeriesTitleCapitalization(text) {
+            const cleaned = cleanCitationText(text);
+            if (!cleaned || !isMostlyAllCaps(cleaned)) return cleaned;
+
+            if (looksLikeNonEnglishSeriesTitle(cleaned)) {
+                return normalizeNonEnglishSeriesTitle(cleaned);
+            }
+
+            return headlineCaseText(cleaned);
+        }
+
+        function looksLikeNonEnglishSeriesTitle(text) {
+            return /^(collection|sources?\s+chr[ée]tiennes?)\b/i.test(cleanCitationText(text));
+        }
+
+        function normalizeNonEnglishSeriesTitle(text) {
+            const sentence = sentenceCaseText(text);
+            return sentence.replace(/^Collection\s+([\p{L}'’-]+)$/u, (match, seriesName) => {
+                return `Collection ${capitalizeCmsWord(seriesName)}`;
+            });
         }
 
         function normalizeFormalPublicationImprint(text) {
@@ -2068,17 +2104,34 @@
         }
 
         function normalizeCitationPlace(text) {
-            return cleanCitationText(text).replace(/,\s*([A-Za-z][A-Za-z .'-]+)$/g, (match, state) => {
+            const cleaned = normalizeAllCapsPlaceName(cleanCitationText(text));
+            return cleaned.replace(/,\s*([A-Za-z][A-Za-z .'-]+)$/g, (match, state) => {
                 const abbreviation = US_STATE_ABBREVIATIONS[state.toLocaleLowerCase('en')];
                 return abbreviation ? `, ${abbreviation}` : match;
             });
         }
 
         function normalizeCitationPublisher(text) {
-            return cleanCitationText(text)
+            return normalizeAllCapsPublisherName(cleanCitationText(text))
                 .replace(/\s*,?\s+(?:incorporated|inc|ltd|limited|corp|corporation)\.?$/i, '')
                 .replace(/\s*,?\s+(?:co|company)\.?$/i, '')
                 .trim();
+        }
+
+        function normalizeAllCapsPublisherName(text) {
+            const cleaned = cleanCitationText(text);
+            return isMostlyAllCaps(cleaned) ? headlineCaseText(cleaned) : cleaned;
+        }
+
+        function normalizeAllCapsPlaceName(text) {
+            const cleaned = cleanCitationText(text);
+            return isMostlyAllCaps(cleaned) ? normalizeFrenchPlaceParticleCasing(headlineCaseText(cleaned)) : cleaned;
+        }
+
+        function normalizeFrenchPlaceParticleCasing(text) {
+            return cleanCitationText(text).replace(/\bD['’]([\p{L}])/gu, (match, firstLetter) => {
+                return `d'${firstLetter.toLocaleUpperCase('fr')}`;
+            });
         }
 
         const US_STATE_ABBREVIATIONS = {
@@ -3020,10 +3073,44 @@
             const cleaned = moveTrailingNonLatinTitleTranslationIntoBrackets(
                 mergeSplitNonLatinTitleTranslations(trimTerminalPunctuation(title))
             );
+            if (isMostlyAllCaps(cleaned) && looksLikeNonEnglishSentenceStyleTitle(cleaned)) {
+                return sentenceCaseText(cleaned);
+            }
+            if (isMostlyAllCaps(cleaned)) {
+                return headlineCaseText(cleaned);
+            }
             return cleanCitationText(cleaned.replace(/\b[\p{Lu}][\p{Lu}'’-]{2,}\b/gu, word => {
                 if (/^(II|III|IV|IX|VI|VII|VIII|USA|UK|US|PDF|ISBN)$/u.test(word)) return word;
                 return word.charAt(0).toLocaleUpperCase('en') + word.slice(1).toLocaleLowerCase('en');
             }));
+        }
+
+        function looksLikeNonEnglishSentenceStyleTitle(text) {
+            const cleaned = cleanCitationText(text);
+            return /\b(?:de|del|des|du|el|en|et|la|le|les|los|las|para|por|un|une|y)\b/i.test(cleaned);
+        }
+
+        function headlineCaseText(text) {
+            const cleaned = cleanCitationText(text).toLocaleLowerCase('en');
+            const words = [...cleaned.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’.-]*/gu)];
+            const lastWordIndex = words.length ? words[words.length - 1].index : -1;
+            return cleanCitationText(cleaned.replace(/[\p{L}\p{N}][\p{L}\p{N}'’.-]*/gu, (word, offset) => {
+                if (offset !== 0 && offset !== lastWordIndex && TITLE_LOWERCASE_WORD_PATTERN.test(word)) {
+                    return word;
+                }
+                return capitalizeCmsWord(word);
+            }));
+        }
+
+        function capitalizeCmsWord(word) {
+            const cleaned = cleanFrontMatterLine(word);
+            if (/^(ii|iii|iv|v|vi|vii|viii|ix|x)$/i.test(cleaned)) {
+                return cleaned.toLocaleUpperCase('en');
+            }
+
+            return cleaned
+                .replace(/^\p{L}/u, letter => letter.toLocaleUpperCase('en'))
+                .replace(/(['’])(\p{L})/gu, (match, apostrophe, letter) => apostrophe + letter.toLocaleUpperCase('en'));
         }
 
         function mergeSplitNonLatinTitleTranslations(text) {
