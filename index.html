@@ -666,6 +666,7 @@
         const CITATION_IMAGE_JPEG_QUALITY = 0.9;
         const NAME_CREDENTIAL_PATTERN = String.raw`(?:o\.?\s*f\.?\s*m\.?(?:\s*cap\.?)?|ofm\s*cap\.?|ofmcap|ofin\s*cap\.?|ofincap|s\.?\s*j\.?|o\.?\s*p\.?|o\.?\s*s\.?\s*b\.?|o\.?\s*c\.?\s*s\.?\s*o\.?|c\.?\s*s\.?\s*r\.?|s\.?\s*d\.?\s*b\.?|c\.?\s*s\.?\s*c\.?|ph\.?\s*d\.?|d\.?\s*phil\.?|m\.?\s*div\.?|th\.?\s*d\.?|d\.?\s*min\.?|ed\.?\s*d\.?|psy\.?\s*d\.?|s\.?\s*t\.?\s*d\.?|s\.?\s*t\.?\s*l\.?|j\.?\s*c\.?\s*d\.?|j\.?\s*d\.?|m\.?\s*d\.?|d\.?\s*d\.?|m\.?\s*s\.?\s*w\.?|l\.?\s*c\.?\s*s\.?\s*w\.?|l\.?\s*m\.?\s*s\.?\s*w\.?|m\.?\s*b\.?\s*a\.?|r\.?\s*n\.?|m\.\s*a\.|b\.\s*a\.|m\.\s*s\.|b\.\s*s\.)`;
         const COMMA_NAME_CREDENTIAL_PATTERN = String.raw`(?:${NAME_CREDENTIAL_PATTERN}|m\s*a|b\s*a|m\s*s|b\s*s)`;
+        const SURNAME_PARTICLE_WORD_SOURCE = String.raw`da|de|del|den|der|di|du|el|la|le|ten|ter|van|von`;
         const SURNAME_PARTICLE_PATTERN = /^(?:da|de|del|den|der|di|du|el|la|le|ten|ter|van|von)$/i;
         const TITLE_LOWERCASE_WORD_PATTERN = /^(?:a|an|and|as|at|but|by|de|del|des|du|el|en|et|for|from|in|la|le|les|nor|of|on|or|para|par|por|the|to|un|une|with|y)$/i;
 
@@ -1694,18 +1695,18 @@
         }
 
         function normalizeContributorName(text) {
-            return stripNameCredentials(text)
+            return normalizeNameInitialSpacing(stripNameCredentials(text)
                 .replace(/[,;:]+$/g, '')
                 .replace(/\b[\p{L}'’-]+\b/gu, word => (
                     word.length > 1 && word === word.toLocaleUpperCase('fr')
                         ? word.charAt(0).toLocaleUpperCase('fr') + word.slice(1).toLocaleLowerCase('fr')
                         : word
                 ))
-                .replace(/\b(And|Et|Y)\b/g, connector => connector.toLocaleLowerCase('fr'));
+                .replace(/\b(And|Et|Y)\b/g, connector => connector.toLocaleLowerCase('fr')));
         }
 
         function normalizeLeadingInvertedInitialAuthorHeading(text) {
-            const cleaned = cleanCitationText(text);
+            const cleaned = normalizeNameInitialSpacing(cleanCitationText(text));
             const leading = splitLeadingInvertedInitialAuthor(cleaned);
             if (!leading) {
                 return cleaned;
@@ -1728,6 +1729,22 @@
 
             return {
                 author: cleanCitationText(`${match[1]}, ${match[2]}`),
+                rest
+            };
+        }
+
+        function splitLeadingInvertedSuffixAuthor(text) {
+            const cleaned = normalizeNameInitialSpacing(cleanCitationText(text));
+            const match = cleaned.match(/^(.+?,\s+.+?,\s*(?:Jr\.?|Sr\.?|II|III|IV|V|VI|VII|VIII|IX|X))\s+(.+)$/u);
+            if (!match) return null;
+
+            const rest = cleanCitationText(match[2]);
+            if (!/^[`'‘’"“”]?\p{Lu}/u.test(rest) && !startsWithNonLatinScript(rest)) {
+                return null;
+            }
+
+            return {
+                author: cleanCitationText(match[1]),
                 rest
             };
         }
@@ -1795,11 +1812,11 @@
         }
 
         function cleanAuthorLine(text) {
-            return stripNameCredentials(repairSplitParticleSurnameAuthor(repairSplitInitialSurname(cleanFrontMatterLine(text)
+            return normalizeNameInitialSpacing(stripNameCredentials(repairSplitParticleSurnameAuthor(repairSplitInitialSurname(cleanFrontMatterLine(text)
                 .replace(/^by\s+/i, '')
                 .replace(/^author\s*:\s*/i, '')
                 .replace(/^(?:지은이|저자|글쓴이|옮긴이|역자|번역)\s*[:：]?\s*/u, '')
-                .replace(/\s+(?:지음|저|著)\s*$/u, ''))))
+                .replace(/\s+(?:지음|저|著)\s*$/u, '')))))
                 .trim();
         }
 
@@ -1810,10 +1827,42 @@
 
         function repairSplitParticleSurnameAuthor(text) {
             const cleaned = cleanFrontMatterLine(text);
+            const particleSurnamePattern = String.raw`(?:[dD]['’]\p{Lu}[\p{L}'’-]+|(?:${SURNAME_PARTICLE_WORD_SOURCE})(?:\s+(?:${SURNAME_PARTICLE_WORD_SOURCE}))*\s+\p{Lu}[\p{L}'’-]+)`;
+            const particleAndGivenPattern = new RegExp(`\\b(${particleSurnamePattern})\\s+(?:and|&)\\s+(\\p{Lu}[\\p{L}'’-]+)(?=\\s*(?:$|[,.;:)]))`, 'giu');
             return cleaned
                 .replace(/\bVries,\s+De,\s+(?:and|&)\s+(Robert)(?=\s*(?:$|[,.;:)]))/gu, 'de Vries, $1')
                 .replace(/\bDe\s+Vries,\s+(Robert)(?=\s*(?:$|[,.;:)]))/gu, 'de Vries, $1')
-                .replace(/\bDe\s+Vries\s+(?:and|&)\s+(Robert)(?=\s*(?:$|[,.;:)]))/gu, 'de Vries, $1');
+                .replace(/\bDe\s+Vries\s+(?:and|&)\s+(Robert)(?=\s*(?:$|[,.;:)]))/gu, 'de Vries, $1')
+                .replace(/\b([dD]['’]\p{Lu}[\p{L}'’-]+)\s+(?:and|&)\s+(\p{Lu}[\p{L}'’-]+)(?=\s*(?:$|[,.;:)]))/gu, (match, surname, given) => {
+                    return `${normalizeSurnameParticleCasing(surname)}, ${given}`;
+                })
+                .replace(particleAndGivenPattern, (match, surname, given) => {
+                    return `${normalizeSurnameParticleCasing(surname)}, ${given}`;
+                });
+        }
+
+        function normalizeNameInitialSpacing(text) {
+            return cleanCitationText(text)
+                .replace(/\b([A-Z])\.(?=([A-Z])\.)/g, '$1. ')
+                .replace(/\b([A-Z])\.\s+(?=([A-Z])\.(?:\s|$))/g, '$1. ');
+        }
+
+        function normalizeSurnameParticleCasing(text) {
+            const words = cleanFrontMatterLine(text).split(/\s+/).filter(Boolean);
+            if (words.length === 0) return '';
+
+            return words.map((word, index) => {
+                if (/^[dD]['’]\p{L}/u.test(word)) {
+                    return word.replace(/^[dD](['’])(\p{L})/u, (match, apostrophe, letter) => {
+                        return `d${apostrophe}${letter.toLocaleUpperCase('fr')}`;
+                    });
+                }
+                if (!isSurnameParticleWord(word)) return word;
+                if (index === 0 && /^(?:la|le|el)$/i.test(word) && words.length === 2) {
+                    return capitalizeCmsWord(word);
+                }
+                return word.toLocaleLowerCase('fr');
+            }).join(' ');
         }
 
         function cleanCitationText(text) {
@@ -2068,7 +2117,13 @@
 
         function normalizeSeriesTitleCapitalization(text) {
             const cleaned = cleanCitationText(text);
-            if (!cleaned || !isMostlyAllCaps(cleaned)) return cleaned;
+            if (!cleaned) return cleaned;
+
+            if (looksLikeNonEnglishSeriesTitle(cleaned) && looksLikeNonEnglishTitleCaseDrift(cleaned)) {
+                return sentenceCaseText(cleaned);
+            }
+
+            if (!isMostlyAllCaps(cleaned)) return cleaned;
 
             if (looksLikeNonEnglishSeriesTitle(cleaned)) {
                 return normalizeNonEnglishSeriesTitle(cleaned);
@@ -2610,8 +2665,8 @@
                 titleText = plainCitationText(emMatch[1]);
                 publication = source.slice(emMatch.index + emMatch[0].length)
                     .replace(/^\s*[.,]\s*/, '');
-            } else if (splitLeadingInvertedInitialAuthor(source)) {
-                const leading = splitLeadingInvertedInitialAuthor(source);
+            } else if (splitLeadingInvertedSuffixAuthor(source) || splitLeadingInvertedInitialAuthor(source)) {
+                const leading = splitLeadingInvertedSuffixAuthor(source) || splitLeadingInvertedInitialAuthor(source);
                 const pieces = splitCitationSentences(leading.rest);
                 authorText = leading.author;
                 titleText = trimTerminalPunctuation(pieces.shift() || '');
@@ -2714,6 +2769,7 @@
             if (first.includes(',')) return false;
             if (containsNonLatinScript(first)) return false;
             if (looksLikeCorporateAuthor(first)) return false;
+            if (cleanAuthorLine(first) !== first) return false;
 
             const remainder = remainingSentences.join('. ');
             const hasPublication = remainingSentences.some(sentence => looksLikePublicationImprint(sentence)) ||
@@ -2870,9 +2926,11 @@
                 return [cleaned, role.role].filter(Boolean).join(', ');
             }
 
-            const [last, ...rest] = cleaned.split(',');
-            const given = rest.join(',').trim();
-            const inverted = [given, last.trim()].filter(Boolean).join(' ');
+            const [last, ...rest] = cleaned.split(',').map(part => trimAuthorName(part));
+            const suffix = rest.length ? normalizeNameSuffixToken(rest[rest.length - 1]) : '';
+            const givenParts = suffix ? rest.slice(0, -1) : rest;
+            const given = givenParts.join(', ').trim();
+            const inverted = [given, last.trim(), suffix].filter(Boolean).join(' ');
             return [inverted, role.role].filter(Boolean).join(', ');
         }
 
@@ -2917,6 +2975,10 @@
                     names[names.length - 1] = `${trimAuthorName(names[names.length - 1])}, ${normalizeCreatorRoleToken(pieces[index])}`;
                     continue;
                 }
+                if (isNameSuffixToken(pieces[index]) && names.length > 0) {
+                    names[names.length - 1] = `${trimAuthorName(names[names.length - 1])}, ${normalizeNameSuffixToken(pieces[index])}`;
+                    continue;
+                }
                 names.push(pieces[index]);
             }
 
@@ -2925,6 +2987,18 @@
 
         function isCreatorRoleToken(text) {
             return Boolean(normalizeCreatorRoleToken(text));
+        }
+
+        function isNameSuffixToken(text) {
+            return Boolean(normalizeNameSuffixToken(text));
+        }
+
+        function normalizeNameSuffixToken(text) {
+            const cleaned = trimTerminalPunctuation(cleanCitationText(text)).toLocaleLowerCase('en');
+            if (cleaned === 'jr') return 'Jr.';
+            if (cleaned === 'sr') return 'Sr.';
+            if (/^(?:ii|iii|iv|v|vi|vii|viii|ix|x)$/.test(cleaned)) return cleaned.toLocaleUpperCase('en');
+            return '';
         }
 
         function looksLikeSingleNonLatinAuthorName(cleaned, pieces) {
@@ -3030,10 +3104,11 @@
             const parts = cleaned.split(/\s+/);
             if (parts.length < 2) return cleaned;
 
-            const suffixes = ['Jr.', 'Jr', 'Sr.', 'Sr', 'II', 'III', 'IV', 'V'];
             let suffix = '';
-            if (suffixes.includes(parts[parts.length - 1])) {
-                suffix = parts.pop();
+            const normalizedSuffix = normalizeNameSuffixToken(parts[parts.length - 1] || '');
+            if (normalizedSuffix) {
+                suffix = normalizedSuffix;
+                parts.pop();
             }
 
             const last = parts.pop();
@@ -3074,7 +3149,10 @@
                 mergeSplitNonLatinTitleTranslations(trimTerminalPunctuation(title))
             );
             if (isMostlyAllCaps(cleaned) && looksLikeNonEnglishSentenceStyleTitle(cleaned)) {
-                return sentenceCaseText(cleaned);
+                return sentenceCaseTitleText(cleaned);
+            }
+            if (looksLikeNonEnglishTitleCaseDrift(cleaned)) {
+                return sentenceCaseTitleText(cleaned);
             }
             if (isMostlyAllCaps(cleaned)) {
                 return headlineCaseText(cleaned);
@@ -3088,6 +3166,30 @@
         function looksLikeNonEnglishSentenceStyleTitle(text) {
             const cleaned = cleanCitationText(text);
             return /\b(?:de|del|des|du|el|en|et|la|le|les|los|las|para|por|un|une|y)\b/i.test(cleaned);
+        }
+
+        function looksLikeNonEnglishTitleCaseDrift(text) {
+            const cleaned = cleanCitationText(text);
+            if (!cleaned || isMostlyAllCaps(cleaned)) return false;
+            if (/^Le Monde$/u.test(cleaned)) return false;
+            const words = cleaned.split(/\s+/).filter(Boolean);
+            if (words.length < 2 || words.length > 10) return false;
+            if (!/\b(?:De|Del|Des|Du|El|En|Et|La|Le|Les|Los|Las|Para|Por|Un|Une|Y)\b|[Ll]['’]\p{Lu}|[Dd]['’]\p{Lu}/u.test(cleaned)) return false;
+            return words.filter(word => /^\p{Lu}/u.test(word)).length >= 2;
+        }
+
+        function sentenceCaseTitleText(text) {
+            let cased = sentenceCaseText(text);
+            const original = cleanCitationText(text);
+            const protectedElisions = [...original.matchAll(/\b([dD]['’]\p{Lu}[\p{L}'’-]+)/gu)]
+                .map(match => match[1]);
+
+            protectedElisions.forEach(elision => {
+                const lowered = elision.toLocaleLowerCase('fr');
+                cased = cased.replace(lowered, elision.replace(/^D/u, 'd'));
+            });
+
+            return cased;
         }
 
         function headlineCaseText(text) {
