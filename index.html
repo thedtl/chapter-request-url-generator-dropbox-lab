@@ -666,6 +666,7 @@
         const CITATION_IMAGE_JPEG_QUALITY = 0.9;
         const NAME_CREDENTIAL_PATTERN = String.raw`(?:o\.?\s*f\.?\s*m\.?(?:\s*cap\.?)?|ofm\s*cap\.?|ofmcap|ofin\s*cap\.?|ofincap|s\.?\s*j\.?|o\.?\s*p\.?|o\.?\s*s\.?\s*b\.?|o\.?\s*c\.?\s*s\.?\s*o\.?|c\.?\s*s\.?\s*r\.?|s\.?\s*d\.?\s*b\.?|c\.?\s*s\.?\s*c\.?|ph\.?\s*d\.?|d\.?\s*phil\.?|m\.?\s*div\.?|th\.?\s*d\.?|d\.?\s*min\.?|ed\.?\s*d\.?|psy\.?\s*d\.?|s\.?\s*t\.?\s*d\.?|s\.?\s*t\.?\s*l\.?|j\.?\s*c\.?\s*d\.?|j\.?\s*d\.?|m\.?\s*d\.?|d\.?\s*d\.?|m\.?\s*s\.?\s*w\.?|l\.?\s*c\.?\s*s\.?\s*w\.?|l\.?\s*m\.?\s*s\.?\s*w\.?|m\.?\s*b\.?\s*a\.?|r\.?\s*n\.?|m\.\s*a\.|b\.\s*a\.|m\.\s*s\.|b\.\s*s\.)`;
         const COMMA_NAME_CREDENTIAL_PATTERN = String.raw`(?:${NAME_CREDENTIAL_PATTERN}|m\s*a|b\s*a|m\s*s|b\s*s)`;
+        const SURNAME_PARTICLE_PATTERN = /^(?:da|de|del|den|der|di|du|el|la|le|ten|ter|van|von)$/i;
 
         document.addEventListener('DOMContentLoaded', () => {
             const savedPassword = sessionStorage.getItem('dtl_staff_password');
@@ -1792,17 +1793,25 @@
         }
 
         function cleanAuthorLine(text) {
-            return stripNameCredentials(repairSplitInitialSurname(cleanFrontMatterLine(text)
+            return stripNameCredentials(repairSplitParticleSurnameAuthor(repairSplitInitialSurname(cleanFrontMatterLine(text)
                 .replace(/^by\s+/i, '')
                 .replace(/^author\s*:\s*/i, '')
                 .replace(/^(?:지은이|저자|글쓴이|옮긴이|역자|번역)\s*[:：]?\s*/u, '')
-                .replace(/\s+(?:지음|저|著)\s*$/u, '')))
+                .replace(/\s+(?:지음|저|著)\s*$/u, ''))))
                 .trim();
         }
 
         function repairSplitInitialSurname(text) {
             return cleanFrontMatterLine(text)
                 .replace(/\b([A-Z]\.?)\s+(?:and|&)\s+(\p{Lu}[\p{L}'’-]+)(?=\s*(?:$|[,.;:)]))/gu, '$1 $2');
+        }
+
+        function repairSplitParticleSurnameAuthor(text) {
+            const cleaned = cleanFrontMatterLine(text);
+            return cleaned
+                .replace(/\bVries,\s+De,\s+(?:and|&)\s+(Robert)(?=\s*(?:$|[,.;:)]))/gu, 'de Vries, $1')
+                .replace(/\bDe\s+Vries,\s+(Robert)(?=\s*(?:$|[,.;:)]))/gu, 'de Vries, $1')
+                .replace(/\bDe\s+Vries\s+(?:and|&)\s+(Robert)(?=\s*(?:$|[,.;:)]))/gu, 'de Vries, $1');
         }
 
         function cleanCitationText(text) {
@@ -2885,8 +2894,17 @@
             const words = cleanFrontMatterLine(text).split(/\s+/).filter(Boolean);
             if (words.length === 0 || words.length > 4) return false;
             if (words.some(word => /\.$/.test(word))) return false;
-            if (words.length === 1) return /^\p{Lu}/u.test(words[0]);
+            if (words.length === 1) return /^\p{Lu}/u.test(words[0]) || looksLikeClosedParticleSurnameWord(words[0]);
+            if (words.slice(0, -1).every(isSurnameParticleWord) && /^\p{Lu}/u.test(words[words.length - 1])) return true;
             return words.slice(0, -1).every(word => /^\p{Ll}/u.test(word)) && /^\p{Lu}/u.test(words[words.length - 1]);
+        }
+
+        function isSurnameParticleWord(word) {
+            return SURNAME_PARTICLE_PATTERN.test(cleanFrontMatterLine(word));
+        }
+
+        function looksLikeClosedParticleSurnameWord(word) {
+            return /^(?:d['’]\p{Lu}|du\p{Lu})/u.test(cleanFrontMatterLine(word));
         }
 
         function looksLikePersonalName(name) {
@@ -2953,6 +2971,9 @@
             if (!cleaned || cleaned.includes(',')) return cleaned;
             if (containsNonLatinScript(cleaned)) return cleaned;
 
+            const particleSurname = invertKnownParticleSurnameName(cleaned);
+            if (particleSurname) return particleSurname;
+
             const parts = cleaned.split(/\s+/);
             if (parts.length < 2) return cleaned;
 
@@ -2965,6 +2986,15 @@
             const last = parts.pop();
             const given = parts.join(' ');
             return last + ', ' + given + (suffix ? ', ' + suffix : '');
+        }
+
+        function invertKnownParticleSurnameName(name) {
+            const match = cleanFrontMatterLine(name).match(/^(.+?)\s+de\s+Vries$/iu);
+            if (!match) return '';
+
+            const given = cleanFrontMatterLine(match[1]);
+            if (!given || given.split(/\s+/).length > 4) return '';
+            return `de Vries, ${given}`;
         }
 
         function containsNonLatinScript(text) {
