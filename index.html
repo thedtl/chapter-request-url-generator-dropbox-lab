@@ -926,30 +926,40 @@
         }
 
         async function extractChapters(pdf, outline, totalPages) {
+            if (!Number.isInteger(totalPages) || totalPages < 1) return [];
             const chapters = [];
+            const entries = [];
 
-            for (let i = 0; i < outline.length; i++) {
-                const item = outline[i];
-                const nextItem = outline[i + 1];
+            async function collect(items) {
+                for (const item of items) {
+                    const page = await getPageNumber(pdf, item);
+                    const entry = { item, start: Number.isInteger(page) && page >= 1 && page <= totalPages ? page : null };
+                    entries.push(entry);
+                    if (Array.isArray(item?.items)) await collect(item.items);
+                    entry.afterSubtree = entries.length;
+                }
+            }
+            await collect(outline);
 
+            for (const entry of entries) {
+                const { item, start: startPage } = entry;
+                if (startPage === null) continue;
                 try {
-                    let startPage = await getPageNumber(pdf, item);
-                    if (startPage === null) continue;
-
-                    let endPage;
-                    if (nextItem) {
-                        const nextStart = await getPageNumber(pdf, nextItem);
-                        endPage = nextStart !== null ? nextStart - 1 : totalPages;
-                    } else {
-                        endPage = totalPages;
+                    // A parent includes its children. Find the next usable
+                    // opening outside this subtree, including after invalid siblings.
+                    let endPage = totalPages;
+                    for (let next = entry.afterSubtree; next < entries.length; next++) {
+                        if (entries[next].start !== null) {
+                            endPage = entries[next].start;
+                            break;
+                        }
                     }
-
-                    if (endPage < startPage) endPage = startPage;
-
+                    // Both ranges include the boundary page: its top may finish
+                    // one work while the next begins below it. Never invent a start.
                     chapters.push({
                         title: item.title.trim(),
                         start: startPage,
-                        end: endPage
+                        end: Math.max(startPage, Math.min(endPage, totalPages))
                     });
                 } catch (e) {
                     console.warn('Could not process bookmark:', item.title, e);
